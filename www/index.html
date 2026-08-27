@@ -6975,7 +6975,7 @@ async function descargarExcel(nombreArchivo) {
             await window.Capacitor.Plugins.Filesystem.writeFile({
                 path: nombreArchivo,
                 data: base64Data,
-                directory: window.Capacitor.Plugins.Filesystem.Directory.ExternalStorage, // ExternalStorage apunta a la raíz interna, pero necesitamos Downloads
+                directory: window.Capacitor.Plugins.Filesystem.Directory.Data,
                 recursive: true
             });
             
