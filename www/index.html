@@ -1494,7 +1494,7 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
 	
 	</style>
 	
-
+<script src="https://code.responsivevoice.org/responsivevoice.js"></script>
 </head>
 <body>
 	
@@ -7611,6 +7611,7 @@ function mostrarMensajeMotivacional(nota, aciertos, fallos) {
 
 
 // Variable global para controlar si el dispositivo soporta voz
+// Variable global para controlar si el dispositivo soporta voz
 const VOZ_SOPORTADA = typeof window.Capacitor?.Plugins?.Accessibility !== 'undefined';
 
 let modoLectura = false;
@@ -7667,9 +7668,9 @@ function setReadButton(activo) {
 }
 
 function readCurrentQuestion() {
-    // Detener cualquier lectura previa
+    // Detener cualquier lectura anterior (tanto RV como Nativa)
     stopReading();
-
+    
     const questionText = document.getElementById('questionText')?.innerText || '';
     let options = document.querySelectorAll('#options .option');
     
@@ -7680,44 +7681,56 @@ function readCurrentQuestion() {
 
     if (!questionText && options.length === 0) return;
 
-    // Construir texto limpio (sin signos ¿¡)
-    let textToRead = `Pregunta: ${questionText.replace(/[¿¡]/g, '')}. `;
+    // LIMPIEZA AVANZADA: Eliminar signos, saltos de línea y espacios múltiples
+    let cleanQuestion = questionText
+        .replace(/[¿¡]/g, '')           // Elimina signos de apertura
+        .replace(/\n/g, ' ')            // Convierte saltos de línea en espacios
+        .replace(/\s+/g, ' ')           // Elimina espacios dobles/triples
+        .trim();                        // Quita espacios al inicio/final
+    
+    let textToRead = `Pregunta: ${cleanQuestion}. `;
     const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
     
     Array.from(options).forEach((opt, index) => {
-        const optText = opt.innerText.replace(/\n/g, ' ').trim();
+        const optText = opt.innerText.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
         const label = labels[index] || `${index + 1}`;
         textToRead += `Opción ${label}: ${optText}. `;
     });
 
-    // Crear utterance nativo
-    currentUtterance = new SpeechSynthesisUtterance(textToRead);
-    currentUtterance.lang = 'es-ES';
-    currentUtterance.rate = 1.0;
-    currentUtterance.pitch = 1.0;
-
-    // Buscar voz masculina española específicamente
-    const voices = synth.getVoices();
-    const maleSpanishVoice = voices.find(v => 
-        v.lang.startsWith('es') && 
-        (v.name.toLowerCase().includes('male') || 
-         v.name.toLowerCase().includes('hombre') || 
-         v.name.toLowerCase().includes('pablo') ||
-         v.name.toLowerCase().includes('diego'))
-    );
-
-    // Fallback a cualquier voz española si no encuentra masculina explícita
-    currentUtterance.voice = maleSpanishVoice || voices.find(v => v.lang.startsWith('es')) || null;
-
-    synth.speak(currentUtterance);
+    // USAR RESPONSIVEVOICE SI ESTÁ DISPONIBLE (Requiere script en <head>)
+    if (typeof responsiveVoice !== 'undefined') {
+        responsiveVoice.speak(textToRead, "Spanish Male", {
+            rate: 1.0,      // Velocidad más natural para hombre
+            pitch: 1.0,     // Tono normal
+            volume: 1.0
+        });
+    } 
+    // FALLBACK A WEB SPEECH API NATIVA
+    else if (window.speechSynthesis) {
+        const utterance = new SpeechSynthesisUtterance(textToRead);
+        utterance.lang = 'es-ES';
+        utterance.rate = 1.0;
+        
+        // Buscar voz masculina española específicamente
+        const voices = synth.getVoices();
+        const maleVoice = voices.find(v => 
+            v.lang.startsWith('es') && 
+            (v.name.toLowerCase().includes('male') || 
+             v.name.toLowerCase().includes('hombre') ||
+             v.name.toLowerCase().includes('pablo'))
+        );
+        
+        if (maleVoice) utterance.voice = maleVoice;
+        
+        synth.speak(utterance);
+    }
 }
 
-
-
 function stopReading() {
-    if (synth.speaking) {
-        synth.cancel();
-    }
+    // Detener ResponsiveVoice
+    if (typeof responsiveVoice !== 'undefined') responsiveVoice.cancel();
+    // Detener Web Speech API
+    if (synth && synth.speaking) synth.cancel();
 }
 
 function desactivarModoLectura() {
