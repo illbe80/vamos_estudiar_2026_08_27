@@ -1,0 +1,15 @@
+{
+  "name": "preguntas-oposiciones",
+  "version": "1.0.0",
+  "description": "App para estudiar oposiciones con Excel",
+  "main": "index.js",
+  "scripts": {
+    "build": "echo 'No build step required for static HTML'"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/filesystem": "^6.0.0"
+  }
+}
