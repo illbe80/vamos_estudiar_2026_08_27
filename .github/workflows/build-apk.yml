@@ -1,57 +1,47 @@
 name: Build Android APK
-on:
-  workflow_dispatch:
+on: workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          
+
       - name: Setup Java JDK
         uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
-          
+
       - name: Install dependencies
-        run: npm install
-        
+        run: |
+          npm install
+          # Plugin para guardar el Excel en la carpeta Descargas del movil.
+          # Usa la version que coincida con tu Capacitor mayor: 6, 7 u 8.
+          npm install @capgo/capacitor-file-sharer@6
+
       - name: Add Android platform
         run: npx cap add android
-        
+
       - name: Generate App Icons
         run: |
           npm install -g @capacitor/assets
           sudo apt-get update && sudo apt-get install -y imagemagick
           npx capacitor-assets generate --iconBackgroundColor '#ffffff'
-          
+
       - name: Sync Web Assets
         run: npx cap sync android
-
-      # ✅ PERMISOS PARA ANDROID 13+
-      - name: Añadir permisos de almacenamiento (Android 13+)
-        run: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          # Eliminar permisos antiguos si existen (evita duplicados)
-          sed -i '/WRITE_EXTERNAL_STORAGE/d' "$MANIFEST"
-          sed -i '/READ_EXTERNAL_STORAGE/d' "$MANIFEST"
-          # Añadir MANAGE_EXTERNAL_STORAGE para acceso total a archivos en Android 11+
-          sed -i '/<application/i\    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>' "$MANIFEST"
-          # Mantener permisos legacy para Android 10 e inferiores
-          sed -i '/<application/i\    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>' "$MANIFEST"
-          sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>' "$MANIFEST"
 
       - name: Build Debug APK
         run: |
           chmod +x ./android/gradlew
           cd android && ./gradlew assembleDebug
-          
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
