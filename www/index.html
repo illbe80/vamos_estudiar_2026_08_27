@@ -6953,59 +6953,92 @@ async function handleFile(e) {
 // GUARDAR EXCEL (usa la URI guardada, sin pedir selector)
 // ═══════════════════════════════════════════════════════════
 async function descargarExcel(nombreArchivo) {
-    debugPantalla("Entrando en descargarExcel (ExcelJS + FileSystem Nativo)");
+    debugPantalla("Entrando en descargarExcel");
     try {
         // 1. Generar buffer con ExcelJS
         const buffer = await workbook.xlsx.writeBuffer();
         
-        // 2. Convertir buffer a Base64 (necesario para FileSystem)
-        let binary = "";
-        const bytes = new Uint8Array(buffer);
-        const len = bytes.byteLength;
-        for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
-        const base64Data = btoa(binary);
+        // 2. Detectar qué plugin tenemos disponible
+        const FileAccess = window.FileAccess || window.Capacitor?.Plugins?.FileAccess;
+        const Filesystem = window.Capacitor?.Plugins?.Filesystem;
+        const isAndroidNative = !!FileAccess || !!Filesystem;
 
-        // 3. Detectar entorno y guardar
-        const isCapacitor = window.Capacitor && window.Capacitor.isNativePlatform();
+        if (isAndroidNative) {
+            debugPantalla("Modo Android detectado");
+            
+            // Convertir buffer a Base64
+            let binary = "";
+            const bytes = new Uint8Array(buffer);
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
+            const base64Data = btoa(binary);
+
+            // INTENTO A: Usar plugin FileAccess personalizado (el que tenías antes)
+            if (FileAccess && typeof FileAccess.writeFile === 'function') {
+                debugPantalla("Usando FileAccess personalizado");
+                let uri = null;
+                try {
+                    const saved = await FileAccess.getSavedFileUri();
+                    if (saved.uri && saved.hasPermission) uri = saved.uri;
+                } catch (e) { debugPantalla("Error obteniendo URI guardada"); }
+                
+                if (!uri) {
+                    debugPantalla("Solicitando selección de archivo al usuario");
+                    const result = await FileAccess.pickFileWithPermission();
+                    if (result.success && result.uri) uri = result.uri;
+                    else throw new Error("No se seleccionó archivo");
+                }
+                
+                await FileAccess.writeFile({ uri: uri, data: base64Data });
+                mostrarToast(`✅ Guardado en: ${nombreArchivo}`);
+                return;
+            }
+
+            // INTENTO B: Usar @capacitor/filesystem estándar
+            if (Filesystem && typeof Filesystem.writeFile === 'function') {
+                debugPantalla("Usando @capacitor/filesystem");
+                try {
+                    // ExternalStorage suele ser /storage/emulated/0/ en Android
+                    await Filesystem.writeFile({
+                        path: nombreArchivo,
+                        data: base64Data,
+                        directory: Filesystem.Directory.ExternalStorage 
+                    });
+                    mostrarToast(`✅ Guardado en almacenamiento interno/${nombreArchivo}`);
+                    return;
+                } catch (err) {
+                    debugPantalla("Filesystem falló, intentando Documents: " + err.message);
+                    // Fallback a Documents si ExternalStorage falla por permisos
+                    await Filesystem.writeFile({
+                        path: nombreArchivo,
+                        data: base64Data,
+                        directory: Filesystem.Directory.Documents
+                    });
+                    mostrarToast(`✅ Guardado en Documentos/${nombreArchivo}`);
+                    return;
+                }
+            }
+            
+            // Si llegamos aquí, hay un plugin pero no tiene los métodos esperados
+            throw new Error("Plugin de archivos detectado pero incompleto");
+        } 
         
-        if (isCapacitor && window.Capacitor.Plugins.Filesystem) {
-            debugPantalla("Modo Android Nativo: Guardando en Descargas");
-            
-            // Usar FileSystem nativo para escribir en /storage/emulated/0/Download/
-            await window.Capacitor.Plugins.Filesystem.writeFile({
-                path: nombreArchivo,
-                data: base64Data,
-                directory: window.Capacitor.Plugins.Filesystem.Directory.Data,
-                recursive: true
-            });
-            
-            // NOTA: Si Directory.ExternalStorage no funciona en tu Android, 
-            // prueba con Directory.Documents o usa la ruta absoluta si tienes permisos MANAGE_EXTERNAL_STORAGE
-            // Para Android 10+ sin permisos especiales, lo más seguro es Directory.ExternalStorage + subcarpeta
-            
-            mostrarToast(`✅ Guardado en almacenamiento interno/${nombreArchivo}`);
-            
-        } else {
-            debugPantalla("Modo Navegador/Web: Descarga estándar");
-            const blob = new Blob([buffer], {
-                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = nombreArchivo;
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(() => {
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            }, 100);
-            mostrarToast('✅ Excel descargado');
-        }
+        // FALLBACK: Modo Navegador / Web
+        debugPantalla("Modo Navegador/Web");
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = nombreArchivo;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+        mostrarToast('✅ Excel descargado');
+        
     } catch (err) {
-        debugPantalla("ERROR EN DESCARGA: " + err.message);
-        console.error('Error al guardar Excel:', err);
-        alert('Error al guardar el Excel: ' + err.message);
+        debugPantalla("ERROR CRÍTICO EN DESCARGA: " + err.message);
+        console.error(err);
+        alert('❌ Error al guardar el Excel: ' + err.message + '\n\nIntenta seleccionar el archivo manualmente o verifica los permisos.');
     }
 }
 
