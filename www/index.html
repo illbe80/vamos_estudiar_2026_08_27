@@ -1494,10 +1494,7 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
 	
 	</style>
 	
-	<!-- Librería de síntesis de voz compatible con todos los dispositivos -->
-<script src="https://code.responsivevoice.org/responsivevoice.js"></script>
 
-	
 </head>
 <body>
 	
@@ -7616,15 +7613,17 @@ function mostrarMensajeMotivacional(nota, aciertos, fallos) {
 // Variable global para controlar si el dispositivo soporta voz
 const VOZ_SOPORTADA = typeof window.Capacitor?.Plugins?.Accessibility !== 'undefined';
 
-let currentUtteranceId = null; // Para detener lecturas específicas
 let modoLectura = false;
+let synth = window.speechSynthesis;
+let currentUtterance = null;
 
 function toggleModoLectura() {
     const btn = document.getElementById('btnReadQuestion');
     
     if (modoLectura) {
+        // Salir del modo lectura
         modoLectura = false;
-        responsiveVoice.cancel(); // Detiene cualquier reproducción activa
+        stopReading();
         if (btn) {
             btn.innerHTML = '🔊';
             btn.title = 'Activar modo lectura';
@@ -7633,6 +7632,7 @@ function toggleModoLectura() {
         return;
     }
 
+    // Entrar en modo lectura
     modoLectura = true;
     if (btn) {
         btn.innerHTML = '🔇';
@@ -7667,8 +7667,8 @@ function setReadButton(activo) {
 }
 
 function readCurrentQuestion() {
-    // Detener lectura anterior siempre
-    responsiveVoice.cancel();
+    // Detener cualquier lectura previa
+    stopReading();
 
     const questionText = document.getElementById('questionText')?.innerText || '';
     let options = document.querySelectorAll('#options .option');
@@ -7680,8 +7680,8 @@ function readCurrentQuestion() {
 
     if (!questionText && options.length === 0) return;
 
-    // Construir texto estructurado
-    let textToRead = `Pregunta: ${questionText}. `;
+    // Construir texto limpio (sin signos ¿¡)
+    let textToRead = `Pregunta: ${questionText.replace(/[¿¡]/g, '')}. `;
     const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
     
     Array.from(options).forEach((opt, index) => {
@@ -7690,22 +7690,34 @@ function readCurrentQuestion() {
         textToRead += `Opción ${label}: ${optText}. `;
     });
 
-    // CONFIGURACIÓN DE VOZ NATURAL ESPAÑOLA
-    // ResponsiveVoice selecciona automáticamente la mejor voz disponible
-    // "Spanish Female" suele ser Google Español o Microsoft Elena
-    responsiveVoice.speak(textToRead, "Spanish Female", {
-        rate: 1.1,      // Velocidad natural
-        pitch: 1,       // Tono normal
-        volume: 1,      // Volumen máximo
-        onend: function() {
-            // Opcional: si quieres que lea la siguiente automáticamente al terminar
-            // if (modoLectura) nextPregunta(); 
-        }
-    });
+    // Crear utterance nativo
+    currentUtterance = new SpeechSynthesisUtterance(textToRead);
+    currentUtterance.lang = 'es-ES';
+    currentUtterance.rate = 1.0;
+    currentUtterance.pitch = 1.0;
+
+    // Buscar voz masculina española específicamente
+    const voices = synth.getVoices();
+    const maleSpanishVoice = voices.find(v => 
+        v.lang.startsWith('es') && 
+        (v.name.toLowerCase().includes('male') || 
+         v.name.toLowerCase().includes('hombre') || 
+         v.name.toLowerCase().includes('pablo') ||
+         v.name.toLowerCase().includes('diego'))
+    );
+
+    // Fallback a cualquier voz española si no encuentra masculina explícita
+    currentUtterance.voice = maleSpanishVoice || voices.find(v => v.lang.startsWith('es')) || null;
+
+    synth.speak(currentUtterance);
 }
 
+
+
 function stopReading() {
-    responsiveVoice.cancel();
+    if (synth.speaking) {
+        synth.cancel();
+    }
 }
 
 function desactivarModoLectura() {
@@ -7719,7 +7731,6 @@ function desactivarModoLectura() {
         btn.style.borderRadius = '';
     }
 }
-
 
 function finalizarExamen() {
     desactivarModoLectura();
