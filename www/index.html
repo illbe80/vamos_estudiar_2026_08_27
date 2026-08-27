@@ -7586,26 +7586,29 @@ function mostrarMensajeMotivacional(nota, aciertos, fallos) {
 
 
 // Variable global para controlar si el dispositivo soporta voz
-const VOZ_SOPORTADA = typeof window.speechSynthesis !== 'undefined';
+const VOZ_SOPORTADA = typeof window.Capacitor?.Plugins?.Accessibility !== 'undefined';
 
 let currentUtterance = null;
 let modoLectura = false;
 
 function toggleModoLectura() {
-    if (!VOZ_SOPORTADA) {
-        alert("⚠️ Tu dispositivo no soporta lectura de voz nativa.");
-        return;
-    }
-
+    const btn = document.getElementById('btnReadQuestion');
+    
     if (modoLectura) {
         modoLectura = false;
-        stopReading();
-        setReadButton(false);
+        if (VOZ_SOPORTADA) {
+            window.Capacitor.Plugins.Accessibility.stop();
+        } else if (window.speechSynthesis) {
+            speechSynthesis.cancel();
+        }
+        btn.innerHTML = '🔊';
+        btn.title = 'Activar modo lectura';
         return;
     }
 
     modoLectura = true;
-    setReadButton(true);
+    btn.innerHTML = '🔇';
+    btn.title = 'Salir del modo lectura';
     readCurrentQuestion();
 }
 
@@ -7633,16 +7636,18 @@ function setReadButton(activo) {
 }
 
 function readCurrentQuestion() {
-    if (!VOZ_SOPORTADA) return;
-    
-    if (speechSynthesis.speaking) speechSynthesis.cancel();
+    // Detener lectura anterior
+    if (VOZ_SOPORTADA) {
+        window.Capacitor.Plugins.Accessibility.stop();
+    } else if (window.speechSynthesis) {
+        speechSynthesis.cancel();
+    }
 
     const questionText = document.getElementById('questionText')?.innerText || '';
     let options = document.querySelectorAll('#options .option');
-    
     if (options.length === 0) {
-        const optionsContainer = document.getElementById('options');
-        if (optionsContainer) options = optionsContainer.children;
+        const container = document.getElementById('options');
+        if (container) options = container.children;
     }
 
     if (!questionText && options.length === 0) return;
@@ -7656,29 +7661,16 @@ function readCurrentQuestion() {
         textToRead += `Opción ${label}: ${optText}. `;
     });
 
-    currentUtterance = new SpeechSynthesisUtterance(textToRead);
-    
-    try {
-        const voices = speechSynthesis.getVoices();
-        const preferredVoice = voices.find(v => 
-            v.lang.startsWith('es') && 
-            (v.name.includes('Google') || 
-             v.name.includes('Microsoft') || 
-             v.name.includes('Premium') || 
-             v.name.includes('Natural'))
-        );
-        
-        currentUtterance.voice = preferredVoice || voices.find(v => v.lang.startsWith('es')) || null;
-        currentUtterance.lang = 'es-ES';
-        currentUtterance.rate = 1.2;
-        currentUtterance.pitch = 1.25;
-        currentUtterance.volume = 1;
-        
-        speechSynthesis.speak(currentUtterance);
-    } catch (err) {
-        console.warn("Error al configurar voz:", err);
-        modoLectura = false;
-        setReadButton(false);
+    // USAR PLUGIN NATIVO SI ESTÁ DISPONIBLE
+    if (VOZ_SOPORTADA) {
+        window.Capacitor.Plugins.Accessibility.speak({ text: textToRead });
+    } 
+    // FALLBACK A WEB API (para navegadores de escritorio)
+    else if (window.speechSynthesis) {
+        const utterance = new SpeechSynthesisUtterance(textToRead);
+        utterance.lang = 'es-ES';
+        utterance.rate = 1.1;
+        speechSynthesis.speak(utterance);
     }
 }
 
