@@ -1457,6 +1457,7 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
 	
 	<!-- Librería de síntesis de voz compatible con todos los dispositivos -->
 <script src="https://code.responsivevoice.org/responsivevoice.js"></script>
+
 	
 </head>
 <body>
@@ -6964,11 +6965,8 @@ async function descargarExcel(nombreArchivo) {
     debugPantalla("Entrando en descargarExcel");
     try {
         if (!workbook) throw new Error("No hay libro de trabajo cargado");
-
-        const mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        
         const buffer = await workbook.xlsx.writeBuffer();
-
-        // Convertir a Base64 (requerido por FileSharer / Filesystem)
         const bytes = new Uint8Array(buffer);
         let binary = "";
         const chunkSize = 0x8000;
@@ -6976,29 +6974,43 @@ async function descargarExcel(nombreArchivo) {
             binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
         }
         const base64Data = btoa(binary);
+        const mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-        // Detectar entorno Capacitor Nativo
-        const isCapacitorNative = window.Capacitor && typeof window.Capacitor.isNativePlatform === "function" && window.Capacitor.isNativePlatform() === true;
-        const FileSharer = window.Capacitor && window.Capacitor.Plugins ? window.Capacitor.Plugins.FileSharer : null;
+        // Detectar entorno nativo
+        const isNative = window.Capacitor && typeof window.Capacitor.isNativePlatform === "function" && window.Capacitor.isNativePlatform() === true;
+        
+        if (isNative) {
+            // INTENTO A: FileSharer (Guarda en Descargas sin pedir ruta)
+            const FileSharer = window.Capacitor?.Plugins?.FileSharer;
+            if (FileSharer && typeof FileSharer.save === "function") {
+                debugPantalla("Usando FileSharer para guardar en Descargas");
+                await FileSharer.save({
+                    filename: nombreArchivo,
+                    contentType: mime,
+                    base64Data: base64Data,
+                    android: { saveDirectory: "downloads" }
+                });
+                mostrarToast(`✅ Guardado en Descargas/${nombreArchivo}`);
+                return;
+            }
 
-        if (isCapacitorNative && FileSharer && typeof FileSharer.save === "function") {
-            // Guarda directamente en la carpeta Descargas del movil via MediaStore (Android 10+)
-            // No requiere permisos especiales. En modo web, descarga el archivo normalmente.
-            debugPantalla("Modo Android Nativo: guardando en Descargas con FileSharer");
-            await FileSharer.save({
-                filename: nombreArchivo,
-                contentType: mime,
-                base64Data: base64Data,
-                android: {
-                    saveDirectory: "downloads"
-                }
-            });
-            mostrarToast("Excel guardado en la carpeta Descargas");
-            return;
-        }
-
-        // FALLBACK: Modo Navegador / Web
-        debugPantalla("Modo Navegador/Web: descarga estandar");
+            // INTENTO B: FileSystem (Carpeta privada de la app)
+            const Filesystem = window.Capacitor?.Plugins?.Filesystem;
+            if (Filesystem && typeof Filesystem.writeFile === "function") {
+                debugPantalla("Fallback a FileSystem (carpeta privada)");
+                await Filesystem.writeFile({
+                    path: nombreArchivo,
+                    data: base64Data,
+                    directory: Filesystem.Directory.Data,
+                    recursive: true
+                });
+                mostrarToast(`✅ Guardado en carpeta privada de la app`);
+                return;
+            }
+        } 
+        
+        // FALLBACK WEB: Descarga estándar
+        debugPantalla("Modo Web: descarga estándar");
         const blob = new Blob([buffer], { type: mime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -7010,11 +7022,11 @@ async function descargarExcel(nombreArchivo) {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }, 100);
-        mostrarToast("Excel descargado (modo web)");
-
+        mostrarToast('✅ Excel descargado (modo web)');
+        
     } catch (err) {
-        console.error("Error al guardar Excel:", err);
-        alert("Error al guardar el Excel: " + err.message);
+        console.error('Error al guardar Excel:', err);
+        alert('❌ Error al guardar: ' + err.message + '\n\nIntenta seleccionar el archivo manualmente.');
     }
 }
 
