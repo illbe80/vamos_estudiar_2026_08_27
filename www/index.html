@@ -6966,50 +6966,72 @@ async function descargarExcel(nombreArchivo) {
     try {
         if (!workbook) throw new Error("No hay libro de trabajo cargado");
         
+        // 1. Generar buffer con ExcelJS
         const buffer = await workbook.xlsx.writeBuffer();
-        const bytes = new Uint8Array(buffer);
+        
+        // 2. Convertir buffer a Base64
         let binary = "";
-        const chunkSize = 0x8000;
-        for (let i = 0; i < bytes.length; i += chunkSize) {
-            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-        }
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
         const base64Data = btoa(binary);
+        const mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-        // Detectar entorno Capacitor Nativo v8
+        // 3. Detectar entorno Capacitor Nativo
         const isCapacitorNative = window.Capacitor?.isNativePlatform?.() === true;
-        const FilesystemPlugin = window.Capacitor?.Plugins?.Filesystem;
+        const FileSharer = window.Capacitor?.Plugins?.FileSharer;
+        const Filesystem = window.Capacitor?.Plugins?.Filesystem;
 
-        if (isCapacitorNative && FilesystemPlugin) {
-            debugPantalla("Modo Android Nativo v8: Guardando en Descargas");
-            
-            // En Capacitor 8, Directory.ExternalStorage suele mapear a la raíz interna
-            // Para Android 13+, si falla, usamos Documents como fallback seguro
-            try {
-                await FilesystemPlugin.writeFile({
-                    path: nombreArchivo,
-                    data: base64Data,
-                    directory: FilesystemPlugin.Directory.ExternalStorage,
-                    recursive: true
+        if (isCapacitorNative) {
+            // INTENTO A: Usar FileSharer (Guarda en Descargas sin pedir ruta ni permisos especiales)
+            if (FileSharer && typeof FileSharer.save === "function") {
+                debugPantalla("Usando @capgo/capacitor-file-sharer para guardar en Descargas");
+                await FileSharer.save({
+                    filename: nombreArchivo,
+                    contentType: mime,
+                    base64Data: base64Data,
+                    android: { saveDirectory: "downloads" } // Clave para Android 10+
                 });
-                mostrarToast(`✅ Guardado en almacenamiento interno/${nombreArchivo}`);
-            } catch (err) {
-                debugPantalla("ExternalStorage falló, usando Documents: " + err.message);
-                await FilesystemPlugin.writeFile({
-                    path: nombreArchivo,
-                    data: base64Data,
-                    directory: FilesystemPlugin.Directory.Documents,
-                    recursive: true
-                });
-                mostrarToast(`✅ Guardado en Documentos/${nombreArchivo}`);
+                mostrarToast(`✅ Guardado en Descargas/${nombreArchivo}`);
+                return;
             }
-            return;
+
+            // INTENTO B: Fallback a FileSystem usando RUTA ABSOLUTA (Evita Directory.Documents)
+            if (Filesystem && typeof Filesystem.writeFile === "function") {
+                debugPantalla("Fallback a FileSystem con ruta absoluta");
+                try {
+                    // Ruta directa a la carpeta pública de Descargas en Android
+                    await Filesystem.writeFile({
+                        path: `/storage/emulated/0/Download/${nombreArchivo}`,
+                        data: base64Data,
+                        recursive: true
+                    });
+                    mostrarToast(`✅ Guardado en /storage/emulated/0/Download/${nombreArchivo}`);
+                    return;
+                } catch (err) {
+                    debugPantalla("Ruta absoluta falló, intentando Documents directo: " + err.message);
+                    // Último recurso: intentar escribir en Documents sin usar el enum
+                    try {
+                        await Filesystem.writeFile({
+                            path: nombreArchivo,
+                            data: base64Data,
+                            directory: "DOCUMENTS", // Usar string en lugar de enum
+                            recursive: true
+                        });
+                        mostrarToast(`✅ Guardado en Documentos/${nombreArchivo}`);
+                        return;
+                    } catch (err2) {
+                        throw new Error("No se pudo guardar en ninguna ubicación nativa: " + err2.message);
+                    }
+                }
+            }
+            
+            throw new Error("Plugin de archivos no disponible en modo nativo");
         } 
         
-        // FALLBACK WEB
-        debugPantalla("Modo Navegador/Web");
-        const blob = new Blob([buffer], {
-            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        });
+        // FALLBACK: Modo Navegador / Web
+        debugPantalla("Modo Navegador/Web: Descarga estándar");
+        const blob = new Blob([buffer], { type: mime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -7024,7 +7046,7 @@ async function descargarExcel(nombreArchivo) {
         
     } catch (err) {
         console.error('Error al guardar Excel:', err);
-        alert('❌ Error al guardar el Excel: ' + err.message);
+        alert('❌ Error al guardar el Excel: ' + err.message + '\n\nVerifica que tienes permisos de almacenamiento activados.');
     }
 }
 
