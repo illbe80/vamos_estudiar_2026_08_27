@@ -6953,92 +6953,62 @@ async function handleFile(e) {
 // GUARDAR EXCEL (usa la URI guardada, sin pedir selector)
 // ═══════════════════════════════════════════════════════════
 async function descargarExcel(nombreArchivo) {
-    debugPantalla("Entrando en descargarExcel");
+    debugPantalla("Entrando en descargarExcel (Modo FileAccess Nativo)");
     try {
         // 1. Generar buffer con ExcelJS
         const buffer = await workbook.xlsx.writeBuffer();
         
-        // 2. Detectar qué plugin tenemos disponible
+        // 2. Convertir buffer a Base64 (OBLIGATORIO para FileAccess)
+        let binary = "";
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
+        const base64Data = btoa(binary);
+
+        // 3. Verificar que FileAccess existe
         const FileAccess = window.FileAccess || window.Capacitor?.Plugins?.FileAccess;
-        const Filesystem = window.Capacitor?.Plugins?.Filesystem;
-        const isAndroidNative = !!FileAccess || !!Filesystem;
+        if (!FileAccess) {
+            throw new Error("Plugin FileAccess no disponible. ¿Estás usando la APK compilada?");
+        }
 
-        if (isAndroidNative) {
-            debugPantalla("Modo Android detectado");
-            
-            // Convertir buffer a Base64
-            let binary = "";
-            const bytes = new Uint8Array(buffer);
-            const len = bytes.byteLength;
-            for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
-            const base64Data = btoa(binary);
-
-            // INTENTO A: Usar plugin FileAccess personalizado (el que tenías antes)
-            if (FileAccess && typeof FileAccess.writeFile === 'function') {
-                debugPantalla("Usando FileAccess personalizado");
-                let uri = null;
-                try {
-                    const saved = await FileAccess.getSavedFileUri();
-                    if (saved.uri && saved.hasPermission) uri = saved.uri;
-                } catch (e) { debugPantalla("Error obteniendo URI guardada"); }
-                
-                if (!uri) {
-                    debugPantalla("Solicitando selección de archivo al usuario");
-                    const result = await FileAccess.pickFileWithPermission();
-                    if (result.success && result.uri) uri = result.uri;
-                    else throw new Error("No se seleccionó archivo");
-                }
-                
-                await FileAccess.writeFile({ uri: uri, data: base64Data });
-                mostrarToast(`✅ Guardado en: ${nombreArchivo}`);
-                return;
+        // 4. Obtener URI del archivo guardado previamente
+        let uri = null;
+        try {
+            const saved = await FileAccess.getSavedFileUri();
+            if (saved && saved.uri && saved.hasPermission) {
+                uri = saved.uri;
+                debugPantalla("URI recuperada: " + uri);
             }
+        } catch (e) {
+            debugPantalla("No hay URI guardada previa: " + e.message);
+        }
 
-            // INTENTO B: Usar @capacitor/filesystem estándar
-            if (Filesystem && typeof Filesystem.writeFile === 'function') {
-                debugPantalla("Usando @capacitor/filesystem");
-                try {
-                    // ExternalStorage suele ser /storage/emulated/0/ en Android
-                    await Filesystem.writeFile({
-                        path: nombreArchivo,
-                        data: base64Data,
-                        directory: Filesystem.Directory.ExternalStorage 
-                    });
-                    mostrarToast(`✅ Guardado en almacenamiento interno/${nombreArchivo}`);
-                    return;
-                } catch (err) {
-                    debugPantalla("Filesystem falló, intentando Documents: " + err.message);
-                    // Fallback a Documents si ExternalStorage falla por permisos
-                    await Filesystem.writeFile({
-                        path: nombreArchivo,
-                        data: base64Data,
-                        directory: Filesystem.Directory.Documents
-                    });
-                    mostrarToast(`✅ Guardado en Documentos/${nombreArchivo}`);
-                    return;
-                }
+        // 5. Si no hay URI, pedir al usuario que seleccione dónde guardar
+        if (!uri) {
+            debugPantalla("Solicitando selección de destino...");
+            const result = await FileAccess.pickFileWithPermission();
+            if (result.success && result.uri) {
+                uri = result.uri;
+                debugPantalla("Nueva URI seleccionada: " + uri);
+            } else {
+                throw new Error("No se seleccionó ningún archivo de destino.");
             }
-            
-            // Si llegamos aquí, hay un plugin pero no tiene los métodos esperados
-            throw new Error("Plugin de archivos detectado pero incompleto");
-        } 
+        }
+
+        // 6. Escribir el archivo usando la URI y Base64
+        debugPantalla("Escribiendo archivo...");
+        await FileAccess.writeFile({ 
+            uri: uri, 
+            data: base64Data 
+        });
         
-        // FALLBACK: Modo Navegador / Web
-        debugPantalla("Modo Navegador/Web");
-        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = nombreArchivo;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
-        mostrarToast('✅ Excel descargado');
-        
+        mostrarToast(`✅ Guardado correctamente en: ${nombreArchivo}`);
+        debugPantalla("Guardado exitoso");
+
     } catch (err) {
-        debugPantalla("ERROR CRÍTICO EN DESCARGA: " + err.message);
+        debugPantalla("ERROR CRÍTICO: " + err.message);
         console.error(err);
-        alert('❌ Error al guardar el Excel: ' + err.message + '\n\nIntenta seleccionar el archivo manualmente o verifica los permisos.');
+        alert('❌ Error al guardar el Excel: ' + err.message + '\n\nAsegúrate de seleccionar el archivo original nuevamente si has cambiado de dispositivo.');
     }
 }
 
