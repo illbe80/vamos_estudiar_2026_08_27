@@ -34,22 +34,19 @@ jobs:
       - name: Sync Web Assets
         run: npx cap sync android
 
-      - name: Añadir permisos de almacenamiento
+      # ✅ PERMISOS PARA ANDROID 13+
+      - name: Añadir permisos de almacenamiento (Android 13+)
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-          # Insertar permisos justo antes de la etiqueta <application
+          # Eliminar permisos antiguos si existen (evita duplicados)
+          sed -i '/WRITE_EXTERNAL_STORAGE/d' "$MANIFEST"
+          sed -i '/READ_EXTERNAL_STORAGE/d' "$MANIFEST"
+          # Añadir MANAGE_EXTERNAL_STORAGE para acceso total a archivos en Android 11+
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>' "$MANIFEST"
+          # Mantener permisos legacy para Android 10 e inferiores
           sed -i '/<application/i\    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>' "$MANIFEST"
           sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>' "$MANIFEST"
-          # Para Android 10+ (API 29+), necesitamos acceso scoped storage o MANAGE_EXTERNAL_STORAGE
-          # Pero para uso personal, WRITE_EXTERNAL_STORAGE suele ser suficiente si el usuario acepta
 
-      - name: Añadir permisos de almacenamiento
-        run: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          # Añadir permiso de escritura externa antes de <application>
-          sed -i '/<application/i\    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>' "$MANIFEST"
-          sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>' "$MANIFEST"
-          
       - name: Build Debug APK
         run: |
           chmod +x ./android/gradlew
