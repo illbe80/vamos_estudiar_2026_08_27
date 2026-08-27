@@ -7019,8 +7019,9 @@ async function handleFile(e) {
 // GUARDAR EXCEL (usa la URI guardada, sin pedir selector)
 // ═══════════════════════════════════════════════════════════
 async function descargarExcel(nombreArchivo) {
+    debugPantalla("Entrando en descargarExcel");
     try {
-        if (!workbook) throw new Error("No hay libro cargado");
+        if (!workbook) throw new Error("No hay libro de trabajo cargado");
         
         const buffer = await workbook.xlsx.writeBuffer();
         const bytes = new Uint8Array(buffer);
@@ -7030,39 +7031,50 @@ async function descargarExcel(nombreArchivo) {
             binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
         }
         const base64Data = btoa(binary);
+        const mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-        // DETECCIÓN DE ENTORNO NATIVO
-        const isNative = window.Capacitor?.isNativePlatform?.() === true;
-        const Filesystem = window.Capacitor?.Plugins?.Filesystem;
+        // Detectar entorno Capacitor Nativo
+        const isCapacitorNative = window.Capacitor && typeof window.Capacitor.isNativePlatform === "function" && window.Capacitor.isNativePlatform() === true;
+        const FileSharer = window.Capacitor && window.Capacitor.Plugins ? window.Capacitor.Plugins.FileSharer : null;
 
-        if (isNative && Filesystem) {
-            // RUTA ABSOLUTA A DESCARGAS EN ANDROID
-            // En Capacitor 6+, esta ruta funciona sin permisos MANAGE_EXTERNAL_STORAGE
-            // porque usa MediaStore internamente si está configurado, o escribe directo si tiene WRITE_EXTERNAL_STORAGE
-            const path = `/storage/emulated/0/Download/${nombreArchivo}`;
+        if (isCapacitorNative && FileSharer && typeof FileSharer.save === "function") {
+            debugPantalla("Modo Android Nativo: guardando en Descargas con FileSharer");
             
-            await Filesystem.writeFile({
-                path: path,
-                data: base64Data,
-                recursive: true
+            // Guardar usando MediaStore (no requiere permisos runtime en Android 10+)
+            await FileSharer.save({
+                filename: nombreArchivo,
+                contentType: mime,
+                base64Data: base64Data,
+                android: { saveDirectory: "downloads" }
             });
             
             mostrarToast(`✅ Guardado en Descargas/${nombreArchivo}`);
             return;
         } 
         
-        // FALLBACK WEB
-        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        // FALLBACK: Modo Navegador / Web o Plugin no disponible
+        debugPantalla("Fallback: descarga web estándar");
+        const blob = new Blob([buffer], { type: mime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url; a.download = nombreArchivo;
-        document.body.appendChild(a); a.click();
-        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+        a.href = url;
+        a.download = nombreArchivo;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 100);
         mostrarToast('✅ Excel descargado (modo web)');
         
     } catch (err) {
-        console.error("Error guardando:", err);
-        alert('❌ Error al guardar: ' + err.message + '\n\nVerifica que tengas activado el almacenamiento externo en Ajustes > Apps.');
+        console.error('Error al guardar Excel:', err);
+        // Mensaje específico si es error de permisos
+        if (err.message.includes('notcreated') || err.message.includes('permission')) {
+            alert('️ No se pudo guardar automáticamente.\n\nPor favor, ve a Ajustes > Apps > Vamos a Estudiar > Permisos y activa "Archivos y multimedia".\n\nO usa la opción de descarga manual.');
+        } else {
+            alert('❌ Error al guardar: ' + err.message);
+        }
     }
 }
 
