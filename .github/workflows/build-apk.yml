@@ -37,6 +37,15 @@ jobs:
       - name: Añadir permisos de almacenamiento
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
+          # Insertar permisos justo antes de la etiqueta <application
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>' "$MANIFEST"
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>' "$MANIFEST"
+          # Para Android 10+ (API 29+), necesitamos acceso scoped storage o MANAGE_EXTERNAL_STORAGE
+          # Pero para uso personal, WRITE_EXTERNAL_STORAGE suele ser suficiente si el usuario acepta
+
+      - name: Añadir permisos de almacenamiento
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
           # Añadir permiso de escritura externa antes de <application>
           sed -i '/<application/i\    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>' "$MANIFEST"
           sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>' "$MANIFEST"
