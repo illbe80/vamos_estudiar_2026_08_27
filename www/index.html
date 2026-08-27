@@ -7585,28 +7585,34 @@ function mostrarMensajeMotivacional(nota, aciertos, fallos) {
 
 
 
-let currentUtterance = null;
-let modoLectura = false; // true mientras el altavoz está en "modo lectura"
+// Variable global para controlar si el dispositivo soporta voz
+const VOZ_SOPORTADA = typeof window.speechSynthesis !== 'undefined';
 
-// Botón del altavoz: entra/sale del "modo lectura"
+let currentUtterance = null;
+let modoLectura = false;
+
 function toggleModoLectura() {
+    if (!VOZ_SOPORTADA) {
+        alert("⚠️ Tu dispositivo no soporta lectura de voz nativa.");
+        return;
+    }
+
     if (modoLectura) {
-        // Salir del modo lectura: se detiene todo y no se vuelve a leer automáticamente
         modoLectura = false;
-        if (speechSynthesis.speaking) speechSynthesis.cancel();
+        stopReading();
         setReadButton(false);
         return;
     }
-    // Entrar en modo lectura: lee la pregunta actual inmediatamente
+
     modoLectura = true;
     setReadButton(true);
     readCurrentQuestion();
 }
 
-// Pinta el botón según esté o no activo el modo lectura
 function setReadButton(activo) {
     const btn = document.getElementById('btnReadQuestion');
     if (!btn) return;
+    
     if (activo) {
         btn.innerHTML = '🔇';
         btn.title = 'Salir del modo lectura';
@@ -7614,17 +7620,25 @@ function setReadButton(activo) {
         btn.style.borderRadius = '50%';
     } else {
         btn.innerHTML = '🔊';
-        btn.title = 'Activar modo lectura';
+        btn.title = VOZ_SOPORTADA ? 'Activar modo lectura' : 'Voz no disponible';
         btn.style.background = 'none';
         btn.style.borderRadius = '';
+        
+        // Deshabilitar visualmente si no hay soporte
+        if (!VOZ_SOPORTADA) {
+            btn.style.opacity = '0.3';
+            btn.style.cursor = 'not-allowed';
+        }
     }
 }
 
 function readCurrentQuestion() {
+    if (!VOZ_SOPORTADA) return;
+    
     if (speechSynthesis.speaking) speechSynthesis.cancel();
 
     const questionText = document.getElementById('questionText')?.innerText || '';
-    let options = document.querySelectorAll('#options .opcion, #options .respuesta, #options li, #options button');
+    let options = document.querySelectorAll('#options .option');
     
     if (options.length === 0) {
         const optionsContainer = document.getElementById('options');
@@ -7644,42 +7658,42 @@ function readCurrentQuestion() {
 
     currentUtterance = new SpeechSynthesisUtterance(textToRead);
     
-    //  SELECCIÓN DE VOZ NATURAL
-    const voices = speechSynthesis.getVoices();
-    // Busca voces españolas de alta calidad (Google, Microsoft, Premium)
-    const preferredVoice = voices.find(v => 
-        v.lang.startsWith('es') && 
-        (v.name.includes('Google') || 
-         v.name.includes('Microsoft') || 
-         v.name.includes('Premium') || 
-         v.name.includes('Natural'))
-    );
-    
-    // Fallback a cualquier voz española si no encuentra premium
-    currentUtterance.voice = preferredVoice || voices.find(v => v.lang.startsWith('es')) || null;
-    
-    // Ajustes para sonar más humano
-    currentUtterance.lang = 'es-ES';
-    currentUtterance.rate = 1.2;   // Ligeramente más lento = más claro y natural
-    currentUtterance.pitch = 1.25; // Tono ligeramente más alto suena menos monótono
-    currentUtterance.volume = 1;
-
-    speechSynthesis.speak(currentUtterance);
+    try {
+        const voices = speechSynthesis.getVoices();
+        const preferredVoice = voices.find(v => 
+            v.lang.startsWith('es') && 
+            (v.name.includes('Google') || 
+             v.name.includes('Microsoft') || 
+             v.name.includes('Premium') || 
+             v.name.includes('Natural'))
+        );
+        
+        currentUtterance.voice = preferredVoice || voices.find(v => v.lang.startsWith('es')) || null;
+        currentUtterance.lang = 'es-ES';
+        currentUtterance.rate = 1.2;
+        currentUtterance.pitch = 1.25;
+        currentUtterance.volume = 1;
+        
+        speechSynthesis.speak(currentUtterance);
+    } catch (err) {
+        console.warn("Error al configurar voz:", err);
+        modoLectura = false;
+        setReadButton(false);
+    }
 }
 
-// Detiene la lectura en curso SIN cambiar el estado del modo lectura
 function stopReading() {
-    if (speechSynthesis.speaking) {
+    if (VOZ_SOPORTADA && speechSynthesis.speaking) {
         speechSynthesis.cancel();
     }
 }
 
-// Sale por completo del modo lectura (al finalizar / salir del examen)
 function desactivarModoLectura() {
     modoLectura = false;
     stopReading();
     setReadButton(false);
 }
+
 
 function finalizarExamen() {
     desactivarModoLectura();
@@ -7764,4 +7778,3 @@ function finalizarExamen() {
 
 </body>
 </html>
-
