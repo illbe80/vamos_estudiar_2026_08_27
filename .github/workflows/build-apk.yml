@@ -34,22 +34,8 @@ jobs:
       - name: Sync Web Assets
         run: npx cap sync android
 
-        - name: Copiar Plugin de Accesibilidad
-          run: |
-            mkdir -p android/app/src/main/java/com/oposiciones/estudio2026
-            cp android-custom/AccessibilityPlugin.java android/app/src/main/java/com/oposiciones/estudio2026/
-        
-        - name: Registrar Plugin en MainActivity
-          run: |
-            MAIN_ACTIVITY="android/app/src/main/java/com/oposiciones/estudio2026/MainActivity.java"
-            # Añadir import
-            sed -i '/import com.getcapacitor.BridgeActivity;/a\import com.oposiciones.estudio2026.AccessibilityPlugin;' "$MAIN_ACTIVITY"
-            # Añadir al array de plugins dentro de onCreate
-            sed -i 's/add(AccessibilityPlugin.class);//' "$MAIN_ACTIVITY" || true
-            sed -i '/add(AccessibilityPlugin.class);/d' "$MAIN_ACTIVITY" || true
-            # Insertar antes del cierre de addPlugins
-            sed -i '/^        }$/i\            add(AccessibilityPlugin.class);' "$MAIN_ACTIVITY"
-                
+      # Eliminado: Plugin Java personalizado (demasiado frágil para CI)
+      
       - name: Build Debug APK
         run: |
           chmod +x ./android/gradlew
