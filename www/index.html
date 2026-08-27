@@ -95,6 +95,22 @@ h1 {
     margin: 0 auto;
     display: block;
 }
+		.btn-action {
+    padding: 0.95rem 1.2rem !important;
+    font-size: 1rem !important;
+    border-radius: 18px !important;
+    margin: 0.4rem 0 !important;
+    border: none !important;
+    cursor: pointer !important;
+    font-weight: 600 !important;
+    transition: all 0.3s ease !important;
+    color: white !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.5rem !important;
+}
+		
 .welcome-hint {
     margin-top: 1.5rem;
     color: #888;
@@ -155,6 +171,29 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
     transition: all 0.3s ease;
 }
 .btn-otro:hover { transform: translateY(-2px); }
+
+		/* Colores semánticos para cada acción */
+.btn-next { background: linear-gradient(45deg, #28a745, #20c997); box-shadow: 0 8px 22px rgba(40,167,69,0.35); }
+.btn-back { background: linear-gradient(45deg, #6c757d, #495057); box-shadow: 0 8px 22px rgba(108,117,125,0.35); }
+.btn-finish { background: linear-gradient(45deg, #dc3545, #b02a37); box-shadow: 0 8px 22px rgba(220,53,69,0.35); }
+
+.btn-action:hover { transform: translateY(-2px); filter: brightness(1.1); }
+.btn-action:active { transform: translateY(0); }
+
+/* Modal de permisos inicial */
+#permisosModal {
+    position: fixed; inset: 0; z-index: 99999;
+    background: rgba(0,0,0,0.85); backdrop-filter: blur(5px);
+    display: flex; align-items: center; justify-content: center;
+}
+.permisos-box {
+    background: white; padding: 2rem; border-radius: 24px;
+    max-width: 90vw; width: 400px; text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+.permisos-box h3 { color: #667eea; margin-top: 0; font-size: 1.4rem; }
+.permisos-box p { color: #555; line-height: 1.6; margin-bottom: 1.5rem; }
+.permisos-box .btn-action { width: 100%; margin-top: 0.5rem; }
 
 /* ── EXAMEN ── */
 .question-container {
@@ -1494,29 +1533,32 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
 })();
 </script>
 <!-- FIN PANEL DE DEPURACIÓN -->
-
+	
+<!-- MODAL DE PERMISOS INICIAL (Oculto por defecto) -->
+<div id="permisosModal" style="display:none;">
+    <div class="permisos-box">
+        <h3> Permiso de Almacenamiento</h3>
+        <p>Para guardar tus progresos y actualizar el Excel directamente en tu carpeta <strong>Descargas</strong>, necesitamos acceso al almacenamiento del dispositivo.</p>
+        <p style="font-size:0.85rem;color:#888;">Esto solo se te pedirá una vez. Sin este permiso, la app no podrá guardar tus estadísticas.</p>
+        <button class="btn-action btn-next" onclick="aceptarPermisos()">✅ Entendido, conceder acceso</button>
+    </div>
+</div>
 	
     <div class="header">
         <h1>🚀 Vamos a estudiar!</h1>
     </div>
 
     <!-- ═══ PANTALLA PRINCIPAL ═══ -->
-    <div id="mainScreen" class="welcome-screen">
-        <div class="welcome-card">
-            <div class="welcome-icon">📚</div>
-            <h2 class="welcome-title">¡Bienvenido!</h2>
-            <p class="welcome-text">
-                Selecciona tu archivo Excel con los exámenes o supuestos para comenzar a estudiar.
-            </p>
-            <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none">
-            <button class="btn-primary btn-large" onclick="seleccionarArchivoConPermisos()">
-                📁 Seleccionar fichero de examen
-            </button>
-            <p class="welcome-hint">
-                💡 <small>El archivo se recordará la próxima vez que abras la app</small>
-            </p>
-        </div>
+<div id="mainScreen" class="welcome-screen">
+    <div class="welcome-card">
+        <div class="welcome-icon">📚</div>
+        <h2 class="welcome-title">¡Bienvenido!</h2>
+        <p class="welcome-text">Selecciona tu archivo Excel con los exámenes o supuestos para comenzar a estudiar.</p>
+        <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none">
+        <button class="btn-primary btn-large" onclick="seleccionarArchivoConPermisos()"> Seleccionar fichero de examen</button>
+        <p class="welcome-hint">💡 <small>El archivo se recordará la próxima vez que abras la app</small></p>
     </div>
+</div>
 
     <!-- ═══ SELECTOR DE MATERIA ═══ -->
     <div id="materiaContainer" class="container hidden">
@@ -1593,22 +1635,18 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
 <!-- ═══ EXAMEN TIPO TEST ═══ -->
 <div id="quizContainer" class="container hidden">
     <div class="question-container">
-        <!-- Cronómetro y Marcador en la misma fila -->
         <div id="repasoIconContainer" class="repaso-icon-container"></div>
         <div class="cronometro" id="cronometro">00:00</div>
-        
-        <!-- ✅ AÑADE EL BOTÓN AQUÍ PARA QUE SEA VISIBLE EN EL EXAMEN -->
-        <button id="btnReadQuestion" class="btn-icon" title="Activar modo lectura" onclick="toggleModoLectura()" style="margin-left:auto; background:none; border:none; font-size:1.5rem; cursor:pointer;">
-            🔊
-        </button>
-
+        <button id="btnReadQuestion" class="btn-icon" title="Activar modo lectura" onclick="toggleModoLectura()" style="margin-left:auto; background:none; border:none; font-size:1.5rem; cursor:pointer;">🔊</button>
         <div id="progress" style="text-align:center;font-weight:600;color:#667eea;margin-bottom:1rem;"></div>
         <div id="questionText" class="question"></div>
         <div id="options"></div>
+        
+        <!-- BOTONES UNIFICADOS -->
         <div class="quiz-actions">
-            <button id="btnAtras" class="btn-back hidden" onclick="volverAtras()">← Anterior</button>
-            <button id="nextBtn" class="btn-primary btn-next hidden" onclick="nextPregunta()">➡️ Siguiente</button>
-            <button class="btn-finish" onclick="finalizarExamen()">🏁 Finalizar</button>
+            <button id="btnAtras" class="btn-action btn-back hidden" onclick="volverAtras()">← Anterior</button>
+            <button id="nextBtn" class="btn-action btn-next hidden" onclick="nextPregunta()">Siguiente ➡️</button>
+            <button class="btn-action btn-finish" onclick="finalizarExamen()">🏁 Finalizar</button>
         </div>
     </div>
 </div>
@@ -1960,8 +1998,11 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
 <!-- Capacitor Plugins -->
 <!-- <script src="@capacitor/filesystem/dist/index.js"></script>-->
 <!-- SheetJS -->
-
+<!-- Capacitor Core (Necesario para isNativePlatform) -->
+<script src="https://unpkg.com/@capacitor/core@6.0.0/dist/capacitor.js"></script>
+<!-- SheetJS / ExcelJS -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+
 <script>
 // Constantes de columnas del Excel
 const S_COL_AÑO      = 0;
@@ -2033,6 +2074,22 @@ let realExamPreguntaActualIndex = 0;
 // app.js – Inicialización y control principal de la app
 // ------------------------------------------------------------
 
+
+window.onload = async function() {
+    init();
+    
+    // Verificar si ya se aceptaron permisos
+    const permisosAceptados = localStorage.getItem("app_storage_permisos");
+    if (!permisosAceptados && window.Capacitor?.isNativePlatform()) {
+        document.getElementById('permisosModal').style.display = 'flex';
+    }
+};
+
+function aceptarPermisos() {
+    localStorage.setItem("app_storage_permisos", "true");
+    document.getElementById('permisosModal').style.display = 'none';
+}
+	
 // ✅ INICIALIZACIÓN
 async function init() {
 
@@ -6963,35 +7020,49 @@ async function handleFile(e) {
 // ═══════════════════════════════════════════════════════════
 async function descargarExcel(nombreArchivo) {
     try {
+        if (!workbook) throw new Error("No hay libro cargado");
+        
         const buffer = await workbook.xlsx.writeBuffer();
         const bytes = new Uint8Array(buffer);
         let binary = "";
-        for (let i = 0; i < bytes.length; i += 0x8000) {
-            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
         }
         const base64Data = btoa(binary);
 
-        // USAR SOLO FILESYSTEM NATIVO DE CAPACITOR 6
+        // DETECCIÓN DE ENTORNO NATIVO
+        const isNative = window.Capacitor?.isNativePlatform?.() === true;
         const Filesystem = window.Capacitor?.Plugins?.Filesystem;
-        if (Filesystem) {
+
+        if (isNative && Filesystem) {
+            // RUTA ABSOLUTA A DESCARGAS EN ANDROID
+            // En Capacitor 6+, esta ruta funciona sin permisos MANAGE_EXTERNAL_STORAGE
+            // porque usa MediaStore internamente si está configurado, o escribe directo si tiene WRITE_EXTERNAL_STORAGE
+            const path = `/storage/emulated/0/Download/${nombreArchivo}`;
+            
             await Filesystem.writeFile({
-                path: nombreArchivo,
+                path: path,
                 data: base64Data,
-                directory: Filesystem.Directory.Data, // Carpeta privada, sin permisos extra
                 recursive: true
             });
-            mostrarToast(`✅ Guardado en carpeta privada de la app`);
-        } else {
-            // Fallback web
-            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = nombreArchivo;
-            document.body.appendChild(a); a.click();
-            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
-        }
+            
+            mostrarToast(`✅ Guardado en Descargas/${nombreArchivo}`);
+            return;
+        } 
+        
+        // FALLBACK WEB
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = nombreArchivo;
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+        mostrarToast('✅ Excel descargado (modo web)');
+        
     } catch (err) {
-        alert('Error al guardar: ' + err.message);
+        console.error("Error guardando:", err);
+        alert('❌ Error al guardar: ' + err.message + '\n\nVerifica que tengas activado el almacenamiento externo en Ajustes > Apps.');
     }
 }
 
