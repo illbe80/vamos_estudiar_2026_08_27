@@ -1,0 +1,8 @@
+{
+  "appId": "com.oposiciones.preguntas2026",
+  "appName": "Preguntas Oposiciones",
+  "webDir": "www",
+  "android": {
+    "icon": "resources/icon.jpg"
+  }
+}
