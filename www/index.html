@@ -140,7 +140,15 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
 .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(102,126,234,0.5); }
 .btn-next  { background: linear-gradient(45deg, #28a745, #20c997); color: white; }
 .btn-secondary { background: #6c757d; color: white; }
-.btn-otro  { background: linear-gradient(45deg, #17a2b8, #20c997); color: white; }
+;
+.btn-back, .btn-finish {
+    padding: 0.95rem 1.2rem; font-size: 1rem; border-radius: 18px;
+    margin: 0.4rem 0; border: none; cursor: pointer; font-weight: 600;
+    transition: all 0.3s ease; color: white;
+}
+.btn-back  { background: linear-gradient(45deg, #3b82f6, #6366f1); box-shadow: 0 8px 22px rgba(59,130,246,0.35); }
+.btn-finish { background: linear-gradient(45deg, #10b981, #059669); box-shadow: 0 8px 22px rgba(16,185,129,0.35); }
+.btn-back:hover, .btn-finish:hover { transform: translateY(-2px); filter: brightness(1.05); }.btn-otro  { background: linear-gradient(45deg, #17a2b8, #20c997); color: white; }
 .btn-next, .btn-secondary, .btn-otro {
     padding: 0.95rem 1.2rem; font-size: 1rem; border-radius: 18px;
     margin: 0.4rem 0; border: none; cursor: pointer; font-weight: 600;
@@ -1597,9 +1605,9 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
         <div id="questionText" class="question"></div>
         <div id="options"></div>
         <div class="quiz-actions">
-            <button id="btnAtras" class="btn-secondary btn-next hidden" onclick="volverAtras()">← Anterior</button>
+            <button id="btnAtras" class="btn-back hidden" onclick="volverAtras()">← Anterior</button>
             <button id="nextBtn" class="btn-primary btn-next hidden" onclick="nextPregunta()">➡️ Siguiente</button>
-            <button class="btn-secondary" onclick="finalizarExamen()">🏁 Finalizar</button>
+            <button class="btn-finish" onclick="finalizarExamen()">🏁 Finalizar</button>
         </div>
     </div>
 </div>
@@ -6956,44 +6964,44 @@ async function descargarExcel(nombreArchivo) {
     debugPantalla("Entrando en descargarExcel");
     try {
         if (!workbook) throw new Error("No hay libro de trabajo cargado");
-        
-        // 1. Generar buffer con ExcelJS
+
+        const mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         const buffer = await workbook.xlsx.writeBuffer();
-        
-        // 2. Convertir buffer a Base64 (requerido por FileSystem)
-        let binary = "";
+
+        // Convertir a Base64 (requerido por FileSharer / Filesystem)
         const bytes = new Uint8Array(buffer);
-        const len = bytes.byteLength;
-        for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
+        let binary = "";
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+        }
         const base64Data = btoa(binary);
 
-        // 3. Detectar entorno Capacitor Nativo
-        const isCapacitorNative = window.Capacitor?.isNativePlatform?.() === true;
-        const FilesystemPlugin = window.Capacitor?.Plugins?.Filesystem;
+        // Detectar entorno Capacitor Nativo
+        const isCapacitorNative = window.Capacitor && typeof window.Capacitor.isNativePlatform === "function" && window.Capacitor.isNativePlatform() === true;
+        const FileSharer = window.Capacitor && window.Capacitor.Plugins ? window.Capacitor.Plugins.FileSharer : null;
 
-        if (isCapacitorNative && FilesystemPlugin) {
-            debugPantalla("Modo Android Nativo: Usando @capacitor/filesystem");
-            
-            // GUARDAR EN CARPETA PRIVADA DE LA APP (NO REQUIERE PERMISOS ESPECIALES)
-            // Directory.Data apunta a /data/data/com.tu.app.id/files/
-            await FilesystemPlugin.writeFile({
-                path: nombreArchivo,
-                data: base64Data,
-                directory: FilesystemPlugin.Directory.Data, 
-                recursive: true
+        if (isCapacitorNative && FileSharer && typeof FileSharer.save === "function") {
+            // Guarda directamente en la carpeta Descargas del movil via MediaStore (Android 10+)
+            // No requiere permisos especiales. En modo web, descarga el archivo normalmente.
+            debugPantalla("Modo Android Nativo: guardando en Descargas con FileSharer");
+            await FileSharer.save({
+                filename: nombreArchivo,
+                contentType: mime,
+                base64Data: base64Data,
+                android: {
+                    saveDirectory: "downloads"
+                }
             });
-            
-            mostrarToast(`✅ Guardado en carpeta privada de la app`);
+            mostrarToast("Excel guardado en la carpeta Descargas");
             return;
-        } 
-        
+        }
+
         // FALLBACK: Modo Navegador / Web
-        debugPantalla("Modo Navegador/Web: Descarga estándar");
-        const blob = new Blob([buffer], {
-            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        });
+        debugPantalla("Modo Navegador/Web: descarga estandar");
+        const blob = new Blob([buffer], { type: mime });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
+        const a = document.createElement("a");
         a.href = url;
         a.download = nombreArchivo;
         document.body.appendChild(a);
@@ -7002,13 +7010,14 @@ async function descargarExcel(nombreArchivo) {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }, 100);
-        mostrarToast('✅ Excel descargado (modo web)');
-        
+        mostrarToast("Excel descargado (modo web)");
+
     } catch (err) {
-        console.error('Error al guardar Excel:', err);
-        alert(' Error al guardar el Excel: ' + err.message);
+        console.error("Error al guardar Excel:", err);
+        alert("Error al guardar el Excel: " + err.message);
     }
 }
+
 
 function mostrarModalGuardado(ruta, nombre, uri) {
     // Crear modal si no existe
