@@ -1447,6 +1447,9 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
 	
 	</style>
 	
+	<!-- Librería de síntesis de voz compatible con todos los dispositivos -->
+<script src="https://code.responsivevoice.org/responsivevoice.js"></script>
+	
 </head>
 <body>
 
@@ -7588,32 +7591,30 @@ function mostrarMensajeMotivacional(nota, aciertos, fallos) {
 // Variable global para controlar si el dispositivo soporta voz
 const VOZ_SOPORTADA = typeof window.Capacitor?.Plugins?.Accessibility !== 'undefined';
 
-let currentUtterance = null;
+let currentUtteranceId = null; // Para detener lecturas específicas
 let modoLectura = false;
 
 function toggleModoLectura() {
     const btn = document.getElementById('btnReadQuestion');
     
     if (modoLectura) {
-        // Salir del modo lectura
         modoLectura = false;
-        stopReading();
+        responsiveVoice.cancel(); // Detiene cualquier reproducción activa
         if (btn) {
             btn.innerHTML = '🔊';
             btn.title = 'Activar modo lectura';
-            btn.setAttribute('aria-pressed', 'false');
+            btn.style.background = 'none';
         }
         return;
     }
 
-    // Entrar en modo lectura
     modoLectura = true;
     if (btn) {
         btn.innerHTML = '🔇';
         btn.title = 'Salir del modo lectura';
-        btn.setAttribute('aria-pressed', 'true');
+        btn.style.background = '#e7e9f5';
+        btn.style.borderRadius = '50%';
     }
-    
     readCurrentQuestion();
 }
 
@@ -7641,7 +7642,8 @@ function setReadButton(activo) {
 }
 
 function readCurrentQuestion() {
-    stopReading(); // Detener cualquier lectura previa
+    // Detener lectura anterior siempre
+    responsiveVoice.cancel();
 
     const questionText = document.getElementById('questionText')?.innerText || '';
     let options = document.querySelectorAll('#options .option');
@@ -7653,7 +7655,7 @@ function readCurrentQuestion() {
 
     if (!questionText && options.length === 0) return;
 
-    // Construir texto completo
+    // Construir texto estructurado
     let textToRead = `Pregunta: ${questionText}. `;
     const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
     
@@ -7663,46 +7665,22 @@ function readCurrentQuestion() {
         textToRead += `Opción ${label}: ${optText}. `;
     });
 
-    // ── ESTRATEGIA NATIVA PARA ACCESIBILIDAD ──
-    // Creamos un elemento invisible pero accesible para TalkBack/Screen Readers
-    let liveRegion = document.getElementById('accessibility-live-region');
-    if (!liveRegion) {
-        liveRegion = document.createElement('div');
-        liveRegion.id = 'accessibility-live-region';
-        liveRegion.setAttribute('role', 'status');
-        liveRegion.setAttribute('aria-live', 'assertive');
-        liveRegion.setAttribute('aria-atomic', 'true');
-        liveRegion.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;';
-        document.body.appendChild(liveRegion);
-    }
-
-    // Inyectar el texto. TalkBack lo leerá automáticamente con la voz configurada por el usuario
-    liveRegion.textContent = textToRead;
-
-    // Fallback a Web Speech API solo si está disponible (navegadores modernos)
-    if (typeof window.speechSynthesis !== 'undefined') {
-        try {
-            const utterance = new SpeechSynthesisUtterance(textToRead);
-            utterance.lang = 'es-ES';
-            utterance.rate = 1.0;
-            speechSynthesis.speak(utterance);
-        } catch (e) {
-            console.warn("Web Speech API falló:", e);
+    // CONFIGURACIÓN DE VOZ NATURAL ESPAÑOLA
+    // ResponsiveVoice selecciona automáticamente la mejor voz disponible
+    // "Spanish Female" suele ser Google Español o Microsoft Elena
+    responsiveVoice.speak(textToRead, "Spanish Female", {
+        rate: 1.1,      // Velocidad natural
+        pitch: 1,       // Tono normal
+        volume: 1,      // Volumen máximo
+        onend: function() {
+            // Opcional: si quieres que lea la siguiente automáticamente al terminar
+            // if (modoLectura) nextPregunta(); 
         }
-    }
+    });
 }
 
 function stopReading() {
-    // Detener Web Speech si existe
-    if (typeof window.speechSynthesis !== 'undefined') {
-        try { speechSynthesis.cancel(); } catch(e) {}
-    }
-    
-    // Limpiar región accesible para detener TalkBack
-    const liveRegion = document.getElementById('accessibility-live-region');
-    if (liveRegion) {
-        liveRegion.textContent = '';
-    }
+    responsiveVoice.cancel();
 }
 
 function desactivarModoLectura() {
@@ -7712,7 +7690,8 @@ function desactivarModoLectura() {
     if (btn) {
         btn.innerHTML = '🔊';
         btn.title = 'Activar modo lectura';
-        btn.setAttribute('aria-pressed', 'false');
+        btn.style.background = 'none';
+        btn.style.borderRadius = '';
     }
 }
 
