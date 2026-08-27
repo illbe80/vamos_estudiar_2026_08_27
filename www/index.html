@@ -7694,6 +7694,10 @@ function readCurrentQuestion() {
     // ✅ CONFIGURACIÓN CORREGIDA: Español de España Masculino
     // Usamos "Spanish Spain Male" para forzar la variante peninsular y género masculino
     responsiveVoice.speak(textToRead, "Spanish Spain Male", {
+		    onerror: function() {
+        // Si falla la masculina de España, usa la femenina de España
+        responsiveVoice.speak(textToRead, "Spanish Spain Female");
+    }
         rate: 1.1,      // Velocidad natural
         pitch: 1,       // Tono normal
         volume: 1,      // Volumen máximo
