@@ -7727,50 +7727,6 @@ function finalizarExamen() {
 	
 </script>
 
-<script>
-// ── ADAPTACIÓN PARA CAPACITOR ANDROID ─
-async function guardarExcelEnDescargas(nombreArchivo, bufferArray) {
-    const Capacitor = window.Capacitor;
-    if (!Capacitor || !Capacitor.Plugins || !Capacitor.Plugins.Filesystem) {
-        // Fallback para navegador: descarga normal
-        const blob = new Blob([bufferArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = nombreArchivo;
-        document.body.appendChild(a); a.click();
-        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
-        return;
-    }
-
-    try {
-        // Convertir ArrayBuffer a Base64 para Capacitor
-        let binary = '';
-        const bytes = new Uint8Array(bufferArray);
-        const len = bytes.byteLength;
-        for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
-        const base64Data = btoa(binary);
-
-        await Capacitor.Plugins.Filesystem.writeFile({
-            path: nombreArchivo,
-            data: base64Data,
-            directory: Capacitor.Plugins.Filesystem.Directory.Downloads,
-            recursive: true
-        });
-        
-        mostrarToast(`✅ Guardado en Descargas/${nombreArchivo}`);
-    } catch (err) {
-        console.error('Error guardando:', err);
-        alert('Error al guardar: ' + err.message);
-    }
-}
-
-// Sobrescribimos tu función original descargarExcel
-async function descargarExcel(nombreArchivo) {
-    if (!workbook) return;
-    const buffer = await workbook.xlsx.writeBuffer();
-    await guardarExcelEnDescargas(nombreArchivo, buffer);
-}
-</script>
 </body>
 </html>
 
