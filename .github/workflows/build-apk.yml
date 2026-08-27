@@ -11,35 +11,39 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           
       - name: Setup Java JDK
         uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
           
       - name: Install dependencies
-        run: npm install
+        run: |
+          npm install @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8 @capacitor/filesystem@8 @capgo/capacitor-file-sharer@8 --legacy-peer-deps
         
       - name: Add Android platform
         run: npx cap add android
-
-      - name: Add Storage Permissions
+        
+      - name: Register Plugins & Fix Permissions
         run: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          sed -i '/<application/i\    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>' "$MANIFEST"
-          sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>' "$MANIFEST"
+          # Forzar sincronización de plugins nativos
+          npx cap sync android
           
+          # Inyectar permisos obligatorios para FileSharer en Android 10+
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>' "$MANIFEST"
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>' "$MANIFEST"
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>' "$MANIFEST"
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>' "$MANIFEST"
+        
       - name: Generate App Icons
         run: |
           npm install -g @capacitor/assets
           sudo apt-get update && sudo apt-get install -y imagemagick
           npx capacitor-assets generate --iconBackgroundColor '#ffffff'
           
-      - name: Sync Web Assets
-        run: npx cap sync android
-
       - name: Build Debug APK
         run: |
           chmod +x ./android/gradlew
