@@ -7633,9 +7633,6 @@ function mostrarMensajeMotivacional(nota, aciertos, fallos) {
     };
 }
 
-
-
-// Variable global para controlar si el dispositivo soporta voz
 // Variable global para controlar si el dispositivo soporta voz
 const VOZ_SOPORTADA = typeof window.Capacitor?.Plugins?.Accessibility !== 'undefined';
 
@@ -7707,16 +7704,50 @@ function readCurrentQuestion() {
 
     if (!questionText && options.length === 0) return;
 
-    let textToRead = `Pregunta: ${questionText}. `;
+    // 1. LIMPIEZA DE TEXTO: Eliminar signos ¿ y ¡ para que no se pronuncien
+    const cleanQuestion = questionText.replace(/[¿¡]/g, '');
+    
+    let textToRead = `Pregunta: ${cleanQuestion}. `;
     const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
     
     Array.from(options).forEach((opt, index) => {
-        const optText = opt.innerText.replace(/\n/g, ' ').trim();
+        // También limpiamos las opciones por si acaso contienen estos signos
+        const optText = opt.innerText.replace(/[¿¡\n]/g, ' ').trim(); 
         const label = labels[index] || `${index + 1}`;
         textToRead += `Opción ${label}: ${optText}. `;
     });
 
-    responsiveVoice.speak(textToRead, "Spanish Female", {
+    // 2. JERARQUÍA DE VOCES ESPECÍFICA
+    // Obtenemos todas las voces disponibles en este momento
+    const availableVoices = responsiveVoice.getVoices();
+    
+    // Definimos la prioridad exacta que solicitaste
+    const voicePriority = [
+        "Spanish Male",           // 1º Español España Masculino
+        "Spanish Female",         // 2º Español España Femenino  
+        "Latin American Spanish Male", // 3º Latinoamericano Masculino
+        "Latin American Spanish Female" // 4º Latinoamericano Femenino
+    ];
+
+    let selectedVoice = null;
+    
+    // Buscamos la primera voz disponible según nuestra lista de prioridad
+    for (const voiceName of voicePriority) {
+        const found = availableVoices.find(v => v.name === voiceName);
+        if (found) {
+            selectedVoice = voiceName;
+            break;
+        }
+    }
+
+    // Si ninguna de las prioritarias existe, usamos la primera voz en español que encuentre como fallback
+    if (!selectedVoice) {
+        const fallback = availableVoices.find(v => v.lang.includes('es'));
+        if (fallback) selectedVoice = fallback.name;
+    }
+
+    // Reproducimos con la voz seleccionada o sin especificar si no hay ninguna
+    responsiveVoice.speak(textToRead, selectedVoice || undefined, {
         rate: 1.1,
         pitch: 1,
         volume: 1
