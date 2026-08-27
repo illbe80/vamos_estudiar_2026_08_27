@@ -7668,8 +7668,8 @@ function setReadButton(activo) {
 }
 
 function readCurrentQuestion() {
-    // Detener cualquier lectura anterior (tanto RV como Nativa)
-    stopReading();
+    // Detener lectura anterior siempre
+    responsiveVoice.cancel();
     
     const questionText = document.getElementById('questionText')?.innerText || '';
     let options = document.querySelectorAll('#options .option');
@@ -7681,49 +7681,26 @@ function readCurrentQuestion() {
 
     if (!questionText && options.length === 0) return;
 
-    // LIMPIEZA AVANZADA: Eliminar signos, saltos de línea y espacios múltiples
-    let cleanQuestion = questionText
-        .replace(/[¿¡]/g, '')           // Elimina signos de apertura
-        .replace(/\n/g, ' ')            // Convierte saltos de línea en espacios
-        .replace(/\s+/g, ' ')           // Elimina espacios dobles/triples
-        .trim();                        // Quita espacios al inicio/final
-    
-    let textToRead = `Pregunta: ${cleanQuestion}. `;
+    // Construir texto estructurado
+    let textToRead = `Pregunta: ${questionText}. `;
     const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
     
     Array.from(options).forEach((opt, index) => {
-        const optText = opt.innerText.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+        const optText = opt.innerText.replace(/\n/g, ' ').trim();
         const label = labels[index] || `${index + 1}`;
         textToRead += `Opción ${label}: ${optText}. `;
     });
 
-    // USAR RESPONSIVEVOICE SI ESTÁ DISPONIBLE (Requiere script en <head>)
-    if (typeof responsiveVoice !== 'undefined') {
-        responsiveVoice.speak(textToRead, "Spanish Male", {
-            rate: 1.0,      // Velocidad más natural para hombre
-            pitch: 1.0,     // Tono normal
-            volume: 1.0
-        });
-    } 
-    // FALLBACK A WEB SPEECH API NATIVA
-    else if (window.speechSynthesis) {
-        const utterance = new SpeechSynthesisUtterance(textToRead);
-        utterance.lang = 'es-ES';
-        utterance.rate = 1.0;
-        
-        // Buscar voz masculina española específicamente
-        const voices = synth.getVoices();
-        const maleVoice = voices.find(v => 
-            v.lang.startsWith('es') && 
-            (v.name.toLowerCase().includes('male') || 
-             v.name.toLowerCase().includes('hombre') ||
-             v.name.toLowerCase().includes('pablo'))
-        );
-        
-        if (maleVoice) utterance.voice = maleVoice;
-        
-        synth.speak(utterance);
-    }
+    // ✅ CONFIGURACIÓN CORREGIDA: Español de España Masculino
+    // Usamos "Spanish Spain Male" para forzar la variante peninsular y género masculino
+    responsiveVoice.speak(textToRead, "Spanish Spain Male", {
+        rate: 1.1,      // Velocidad natural
+        pitch: 1,       // Tono normal
+        volume: 1,      // Volumen máximo
+        onend: function() {
+            // Opcional: lógica al terminar
+        }
+    });
 }
 
 function stopReading() {
