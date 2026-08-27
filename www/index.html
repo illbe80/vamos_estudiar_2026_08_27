@@ -7595,26 +7595,25 @@ function toggleModoLectura() {
     const btn = document.getElementById('btnReadQuestion');
     
     if (modoLectura) {
+        // Salir del modo lectura
         modoLectura = false;
         stopReading();
         if (btn) {
             btn.innerHTML = '🔊';
             btn.title = 'Activar modo lectura';
+            btn.setAttribute('aria-pressed', 'false');
         }
         return;
     }
 
-    // Verificar soporte ANTES de activar modo
-    if (typeof window.speechSynthesis === 'undefined') {
-        alert("️ Tu dispositivo no soporta lectura de voz.\n\nEsta función requiere un navegador moderno o Android con Google TTS instalado.");
-        return;
-    }
-
+    // Entrar en modo lectura
     modoLectura = true;
     if (btn) {
         btn.innerHTML = '🔇';
         btn.title = 'Salir del modo lectura';
+        btn.setAttribute('aria-pressed', 'true');
     }
+    
     readCurrentQuestion();
 }
 
@@ -7642,16 +7641,8 @@ function setReadButton(activo) {
 }
 
 function readCurrentQuestion() {
-    // 1. Detener cualquier lectura anterior de forma segura
-    try {
-        if (window.speechSynthesis) {
-            speechSynthesis.cancel();
-        }
-    } catch (e) {
-        console.warn("Error cancelando lectura:", e);
-    }
+    stopReading(); // Detener cualquier lectura previa
 
-    // 2. Obtener texto de la pregunta
     const questionText = document.getElementById('questionText')?.innerText || '';
     let options = document.querySelectorAll('#options .option');
     
@@ -7662,7 +7653,7 @@ function readCurrentQuestion() {
 
     if (!questionText && options.length === 0) return;
 
-    // 3. Construir texto a leer
+    // Construir texto completo
     let textToRead = `Pregunta: ${questionText}. `;
     const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
     
@@ -7672,38 +7663,46 @@ function readCurrentQuestion() {
         textToRead += `Opción ${label}: ${optText}. `;
     });
 
-    // 4. Usar SOLO Web Speech API con protección total
+    // ── ESTRATEGIA NATIVA PARA ACCESIBILIDAD ──
+    // Creamos un elemento invisible pero accesible para TalkBack/Screen Readers
+    let liveRegion = document.getElementById('accessibility-live-region');
+    if (!liveRegion) {
+        liveRegion = document.createElement('div');
+        liveRegion.id = 'accessibility-live-region';
+        liveRegion.setAttribute('role', 'status');
+        liveRegion.setAttribute('aria-live', 'assertive');
+        liveRegion.setAttribute('aria-atomic', 'true');
+        liveRegion.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;';
+        document.body.appendChild(liveRegion);
+    }
+
+    // Inyectar el texto. TalkBack lo leerá automáticamente con la voz configurada por el usuario
+    liveRegion.textContent = textToRead;
+
+    // Fallback a Web Speech API solo si está disponible (navegadores modernos)
     if (typeof window.speechSynthesis !== 'undefined') {
         try {
             const utterance = new SpeechSynthesisUtterance(textToRead);
             utterance.lang = 'es-ES';
-            utterance.rate = 1.0; // Velocidad normal para mejor claridad
-            utterance.pitch = 1.0;
-            utterance.volume = 1.0;
-            
-            // Intentar seleccionar voz española si está disponible
-            const voices = speechSynthesis.getVoices();
-            const spanishVoice = voices.find(v => v.lang.startsWith('es'));
-            if (spanishVoice) {
-                utterance.voice = spanishVoice;
-            }
-            
+            utterance.rate = 1.0;
             speechSynthesis.speak(utterance);
-        } catch (err) {
-            console.warn("Speech Synthesis falló:", err);
-            // No hacer nada más, evitar que bloquee la app
+        } catch (e) {
+            console.warn("Web Speech API falló:", e);
         }
-    } else {
-        console.info("Speech Synthesis no disponible en este dispositivo");
     }
 }
 
 function stopReading() {
-    try {
-        if (window.speechSynthesis && speechSynthesis.speaking) {
-            speechSynthesis.cancel();
-        }
-    } catch (e) {}
+    // Detener Web Speech si existe
+    if (typeof window.speechSynthesis !== 'undefined') {
+        try { speechSynthesis.cancel(); } catch(e) {}
+    }
+    
+    // Limpiar región accesible para detener TalkBack
+    const liveRegion = document.getElementById('accessibility-live-region');
+    if (liveRegion) {
+        liveRegion.textContent = '';
+    }
 }
 
 function desactivarModoLectura() {
@@ -7713,6 +7712,7 @@ function desactivarModoLectura() {
     if (btn) {
         btn.innerHTML = '🔊';
         btn.title = 'Activar modo lectura';
+        btn.setAttribute('aria-pressed', 'false');
     }
 }
 
