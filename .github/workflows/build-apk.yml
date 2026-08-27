@@ -1,4 +1,5 @@
 name: Build Android APK
+
 on: 
   workflow_dispatch:
 
@@ -19,9 +20,26 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      # PASO CRÍTICO: Crear package.json dinámicamente ya que no existe en el repo
+      - name: Create package.json
+        run: |
+          cat > package.json << 'EOF'
+          {
+            "name": "vamos-a-estudiar",
+            "version": "1.0.0",
+            "scripts": { "build": "echo 'Static build'" },
+            "dependencies": {
+              "@capacitor/android": "^8.0.0",
+              "@capacitor/cli": "^8.0.0",
+              "@capacitor/core": "^8.0.0",
+              "@capacitor/filesystem": "^8.0.0",
+              "@capgo/capacitor-file-sharer": "^8.0.0"
+            }
+          }
+          EOF
+
       - name: Install dependencies
-        run: npm install @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8 @capacitor/filesystem@8 --legacy-peer-deps
-    
+        run: npm install --legacy-peer-deps
 
       - name: Add Android platform
         run: npx cap add android
@@ -34,6 +52,13 @@ jobs:
 
       - name: Sync Web Assets
         run: npx cap sync android
+
+      # Añadir permisos necesarios para guardar en Descargas en Android 10+
+      - name: Add Storage Permissions
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>' "$MANIFEST"
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>' "$MANIFEST"
 
       - name: Build Debug APK
         run: |
