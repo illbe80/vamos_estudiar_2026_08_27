@@ -1497,6 +1497,31 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
 <script src="https://code.responsivevoice.org/responsivevoice.js"></script>
 </head>
 <body>
+
+	<div id="debug-panel" style="position:fixed;top:0;left:0;width:100%;height:150px;background:#ff0000;color:white;font-family:monospace;font-size:12px;padding:8px;z-index:99999;overflow-y:auto;border-bottom:3px solid #fff;display:none;">
+    <strong> LOG DE ERRORES:</strong><br>
+</div>
+<script>
+(function() {
+    const panel = document.getElementById('debug-panel');
+    panel.style.display = 'block'; // MANTÉNLO EN 'block' MIENTRAS PRUEBAS
+    window.onerror = function(msg, url, lineNo, columnNo, error) {
+        const entry = document.createElement('div');
+        entry.style.borderBottom = '1px solid rgba(255,255,255,0.3)';
+        entry.style.padding = '4px 0';
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg} (Línea: ${lineNo})`;
+        panel.appendChild(entry);
+        return false;
+    };
+    window.onunhandledrejection = function(event) {
+        const entry = document.createElement('div');
+        entry.style.borderBottom = '1px solid rgba(255,255,255,0.3)';
+        entry.style.padding = '4px 0';
+        entry.textContent = `[${new Date().toLocaleTimeString()}] Promise Error: ${event.reason}`;
+        panel.appendChild(entry);
+    };
+})();
+</script>
 	
 <!-- MODAL DE PERMISOS INICIAL (Oculto por defecto) -->
 <div id="permisosModal" style="display:none;">
@@ -1607,11 +1632,11 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
         <div id="options"></div>
         
         <!-- BOTONES UNIFICADOS -->
-        <div class="quiz-actions">
-            <button id="btnAtras" class="btn-action btn-back hidden" onclick="volverAtras()">← Anterior</button>
-            <button id="nextBtn" class="btn-action btn-next hidden" onclick="nextPregunta()">Siguiente ➡️</button>
-            <button class="btn-action btn-finish" onclick="finalizarExamen()">🏁 Finalizar</button>
-        </div>
+<div class="quiz-actions">
+    <button id="btnAtras" class="btn-action btn-back hidden" onclick="volverAtras()">← Anterior</button>
+    <button id="nextBtn" class="btn-action btn-next hidden" onclick="nextPregunta()">Siguiente ➡️</button>
+    <button class="btn-action btn-finish" onclick="finalizarExamen()"> Finalizar</button>
+</div>
     </div>
 </div>
 
@@ -7620,11 +7645,10 @@ let currentUtterance = null;
 
 function toggleModoLectura() {
     const btn = document.getElementById('btnReadQuestion');
-    
     if (modoLectura) {
-        // Salir del modo lectura
         modoLectura = false;
-        stopReading();
+        // Protección: solo cancelar si la librería cargó
+        if (typeof responsiveVoice !== 'undefined') responsiveVoice.cancel();
         if (btn) {
             btn.innerHTML = '🔊';
             btn.title = 'Activar modo lectura';
@@ -7632,8 +7656,6 @@ function toggleModoLectura() {
         }
         return;
     }
-
-    // Entrar en modo lectura
     modoLectura = true;
     if (btn) {
         btn.innerHTML = '🔇';
@@ -7643,6 +7665,7 @@ function toggleModoLectura() {
     }
     readCurrentQuestion();
 }
+
 
 function setReadButton(activo) {
     const btn = document.getElementById('btnReadQuestion');
@@ -7668,7 +7691,10 @@ function setReadButton(activo) {
 }
 
 function readCurrentQuestion() {
-    // Detener lectura anterior siempre
+    if (typeof responsiveVoice === 'undefined') {
+        console.warn("ResponsiveVoice no ha cargado aún");
+        return;
+    }
     responsiveVoice.cancel();
     
     const questionText = document.getElementById('questionText')?.innerText || '';
@@ -7681,7 +7707,6 @@ function readCurrentQuestion() {
 
     if (!questionText && options.length === 0) return;
 
-    // Construir texto estructurado
     let textToRead = `Pregunta: ${questionText}. `;
     const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
     
@@ -7691,27 +7716,15 @@ function readCurrentQuestion() {
         textToRead += `Opción ${label}: ${optText}. `;
     });
 
-    // ✅ CONFIGURACIÓN CORREGIDA: Español de España Masculino
-    // Usamos "Spanish Spain Male" para forzar la variante peninsular y género masculino
-    responsiveVoice.speak(textToRead, "Spanish Spain Male", {
-		    onerror: function() {
-        // Si falla la masculina de España, usa la femenina de España
-        responsiveVoice.speak(textToRead, "Spanish Spain Female");
-    }
-        rate: 1.1,      // Velocidad natural
-        pitch: 1,       // Tono normal
-        volume: 1,      // Volumen máximo
-        onend: function() {
-            // Opcional: lógica al terminar
-        }
+    responsiveVoice.speak(textToRead, "Spanish Female", {
+        rate: 1.1,
+        pitch: 1,
+        volume: 1
     });
 }
 
 function stopReading() {
-    // Detener ResponsiveVoice
     if (typeof responsiveVoice !== 'undefined') responsiveVoice.cancel();
-    // Detener Web Speech API
-    if (synth && synth.speaking) synth.cancel();
 }
 
 function desactivarModoLectura() {
