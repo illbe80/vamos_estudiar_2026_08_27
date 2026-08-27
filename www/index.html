@@ -6974,46 +6974,44 @@ async function descargarExcel(nombreArchivo) {
             binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
         }
         const base64Data = btoa(binary);
-        const mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-        // Detectar entorno nativo
-        const isNative = window.Capacitor && typeof window.Capacitor.isNativePlatform === "function" && window.Capacitor.isNativePlatform() === true;
-        
-        if (isNative) {
-            // INTENTO A: FileSharer (Guarda en Descargas sin pedir ruta)
-            const FileSharer = window.Capacitor?.Plugins?.FileSharer;
-            if (FileSharer && typeof FileSharer.save === "function") {
-                debugPantalla("Usando FileSharer para guardar en Descargas");
-                await FileSharer.save({
-                    filename: nombreArchivo,
-                    contentType: mime,
-                    base64Data: base64Data,
-                    android: { saveDirectory: "downloads" }
-                });
-                mostrarToast(`✅ Guardado en Descargas/${nombreArchivo}`);
-                return;
-            }
+        // Detectar entorno Capacitor Nativo v8
+        const isCapacitorNative = window.Capacitor?.isNativePlatform?.() === true;
+        const FilesystemPlugin = window.Capacitor?.Plugins?.Filesystem;
 
-            // INTENTO B: FileSystem (Carpeta privada de la app)
-            const Filesystem = window.Capacitor?.Plugins?.Filesystem;
-            if (Filesystem && typeof Filesystem.writeFile === "function") {
-                debugPantalla("Fallback a FileSystem (carpeta privada)");
-                await Filesystem.writeFile({
+        if (isCapacitorNative && FilesystemPlugin) {
+            debugPantalla("Modo Android Nativo v8: Guardando en Descargas");
+            
+            // En Capacitor 8, Directory.ExternalStorage suele mapear a la raíz interna
+            // Para Android 13+, si falla, usamos Documents como fallback seguro
+            try {
+                await FilesystemPlugin.writeFile({
                     path: nombreArchivo,
                     data: base64Data,
-                    directory: Filesystem.Directory.Data,
+                    directory: FilesystemPlugin.Directory.ExternalStorage,
                     recursive: true
                 });
-                mostrarToast(`✅ Guardado en carpeta privada de la app`);
-                return;
+                mostrarToast(`✅ Guardado en almacenamiento interno/${nombreArchivo}`);
+            } catch (err) {
+                debugPantalla("ExternalStorage falló, usando Documents: " + err.message);
+                await FilesystemPlugin.writeFile({
+                    path: nombreArchivo,
+                    data: base64Data,
+                    directory: FilesystemPlugin.Directory.Documents,
+                    recursive: true
+                });
+                mostrarToast(`✅ Guardado en Documentos/${nombreArchivo}`);
             }
+            return;
         } 
         
-        // FALLBACK WEB: Descarga estándar
-        debugPantalla("Modo Web: descarga estándar");
-        const blob = new Blob([buffer], { type: mime });
+        // FALLBACK WEB
+        debugPantalla("Modo Navegador/Web");
+        const blob = new Blob([buffer], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
+        const a = document.createElement('a');
         a.href = url;
         a.download = nombreArchivo;
         document.body.appendChild(a);
@@ -7026,7 +7024,7 @@ async function descargarExcel(nombreArchivo) {
         
     } catch (err) {
         console.error('Error al guardar Excel:', err);
-        alert('❌ Error al guardar: ' + err.message + '\n\nIntenta seleccionar el archivo manualmente.');
+        alert('❌ Error al guardar el Excel: ' + err.message);
     }
 }
 
