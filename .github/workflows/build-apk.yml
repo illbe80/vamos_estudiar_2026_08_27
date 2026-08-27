@@ -24,7 +24,13 @@ jobs:
         
       - name: Add Android platform
         run: npx cap add android
-        
+
+      - name: Add Storage Permissions
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>' "$MANIFEST"
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>' "$MANIFEST"
+          
       - name: Generate App Icons
         run: |
           npm install -g @capacitor/assets
