@@ -34,8 +34,13 @@ jobs:
       - name: Sync Web Assets
         run: npx cap sync android
 
-      # Eliminado: Plugin Java personalizado (demasiado frágil para CI)
-      
+      - name: Añadir permisos de almacenamiento
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          # Añadir permiso de escritura externa antes de <application>
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>' "$MANIFEST"
+          sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>' "$MANIFEST"
+          
       - name: Build Debug APK
         run: |
           chmod +x ./android/gradlew
