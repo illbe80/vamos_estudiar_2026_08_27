@@ -1449,6 +1449,41 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
 	
 </head>
 <body>
+
+	<!-- PANEL DE DEPURACIÓN TEMPORAL -->
+<div id="debug-panel" style="position:fixed;top:0;left:0;width:100%;height:150px;background:#ff0000;color:white;font-family:monospace;font-size:12px;padding:8px;z-index:99999;overflow-y:auto;border-bottom:3px solid #fff;display:none;">
+    <strong> LOG DE ERRORES:</strong><br>
+</div>
+<script>
+(function() {
+    const panel = document.getElementById('debug-panel');
+    panel.style.display = 'block';
+    
+    // Capturar errores globales
+    window.onerror = function(msg, url, lineNo, columnNo, error) {
+        const entry = document.createElement('div');
+        entry.style.borderBottom = '1px solid rgba(255,255,255,0.3)';
+        entry.style.padding = '4px 0';
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg} (Línea: ${lineNo})`;
+        panel.appendChild(entry);
+        return false;
+    };
+
+    // Capturar promesas rechazadas
+    window.onunhandledrejection = function(event) {
+        const entry = document.createElement('div');
+        entry.style.borderBottom = '1px solid rgba(255,255,255,0.3)';
+        entry.style.padding = '4px 0';
+        entry.textContent = `[${new Date().toLocaleTimeString()}] Promise Error: ${event.reason}`;
+        panel.appendChild(entry);
+    };
+
+    console.log("✅ Panel de depuración activado");
+})();
+</script>
+<!-- FIN PANEL DE DEPURACIÓN -->
+
+	
     <div class="header">
         <h1>🚀 Vamos a estudiar!</h1>
     </div>
