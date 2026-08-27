@@ -1,11 +1,7 @@
 {
-  "name": "preguntas-oposiciones",
+  "name": "vamos-a-estudiar",
   "version": "1.0.0",
-  "description": "App para estudiar oposiciones con Excel",
-  "main": "index.js",
-  "scripts": {
-    "build": "echo 'No build step required for static HTML'"
-  },
+  "scripts": { "build": "echo 'Static build'" },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
     "@capacitor/core": "^6.0.0",
