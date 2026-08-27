@@ -7596,19 +7596,25 @@ function toggleModoLectura() {
     
     if (modoLectura) {
         modoLectura = false;
-        if (VOZ_SOPORTADA) {
-            window.Capacitor.Plugins.Accessibility.stop();
-        } else if (window.speechSynthesis) {
-            speechSynthesis.cancel();
+        stopReading();
+        if (btn) {
+            btn.innerHTML = '🔊';
+            btn.title = 'Activar modo lectura';
         }
-        btn.innerHTML = '🔊';
-        btn.title = 'Activar modo lectura';
+        return;
+    }
+
+    // Verificar soporte ANTES de activar modo
+    if (typeof window.speechSynthesis === 'undefined') {
+        alert("️ Tu dispositivo no soporta lectura de voz.\n\nEsta función requiere un navegador moderno o Android con Google TTS instalado.");
         return;
     }
 
     modoLectura = true;
-    btn.innerHTML = '🔇';
-    btn.title = 'Salir del modo lectura';
+    if (btn) {
+        btn.innerHTML = '🔇';
+        btn.title = 'Salir del modo lectura';
+    }
     readCurrentQuestion();
 }
 
@@ -7636,15 +7642,19 @@ function setReadButton(activo) {
 }
 
 function readCurrentQuestion() {
-    // Detener lectura anterior
-    if (VOZ_SOPORTADA) {
-        window.Capacitor.Plugins.Accessibility.stop();
-    } else if (window.speechSynthesis) {
-        speechSynthesis.cancel();
+    // 1. Detener cualquier lectura anterior de forma segura
+    try {
+        if (window.speechSynthesis) {
+            speechSynthesis.cancel();
+        }
+    } catch (e) {
+        console.warn("Error cancelando lectura:", e);
     }
 
+    // 2. Obtener texto de la pregunta
     const questionText = document.getElementById('questionText')?.innerText || '';
     let options = document.querySelectorAll('#options .option');
+    
     if (options.length === 0) {
         const container = document.getElementById('options');
         if (container) options = container.children;
@@ -7652,6 +7662,7 @@ function readCurrentQuestion() {
 
     if (!questionText && options.length === 0) return;
 
+    // 3. Construir texto a leer
     let textToRead = `Pregunta: ${questionText}. `;
     const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
     
@@ -7661,29 +7672,48 @@ function readCurrentQuestion() {
         textToRead += `Opción ${label}: ${optText}. `;
     });
 
-    // USAR PLUGIN NATIVO SI ESTÁ DISPONIBLE
-    if (VOZ_SOPORTADA) {
-        window.Capacitor.Plugins.Accessibility.speak({ text: textToRead });
-    } 
-    // FALLBACK A WEB API (para navegadores de escritorio)
-    else if (window.speechSynthesis) {
-        const utterance = new SpeechSynthesisUtterance(textToRead);
-        utterance.lang = 'es-ES';
-        utterance.rate = 1.1;
-        speechSynthesis.speak(utterance);
+    // 4. Usar SOLO Web Speech API con protección total
+    if (typeof window.speechSynthesis !== 'undefined') {
+        try {
+            const utterance = new SpeechSynthesisUtterance(textToRead);
+            utterance.lang = 'es-ES';
+            utterance.rate = 1.0; // Velocidad normal para mejor claridad
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
+            
+            // Intentar seleccionar voz española si está disponible
+            const voices = speechSynthesis.getVoices();
+            const spanishVoice = voices.find(v => v.lang.startsWith('es'));
+            if (spanishVoice) {
+                utterance.voice = spanishVoice;
+            }
+            
+            speechSynthesis.speak(utterance);
+        } catch (err) {
+            console.warn("Speech Synthesis falló:", err);
+            // No hacer nada más, evitar que bloquee la app
+        }
+    } else {
+        console.info("Speech Synthesis no disponible en este dispositivo");
     }
 }
 
 function stopReading() {
-    if (VOZ_SOPORTADA && speechSynthesis.speaking) {
-        speechSynthesis.cancel();
-    }
+    try {
+        if (window.speechSynthesis && speechSynthesis.speaking) {
+            speechSynthesis.cancel();
+        }
+    } catch (e) {}
 }
 
 function desactivarModoLectura() {
     modoLectura = false;
     stopReading();
-    setReadButton(false);
+    const btn = document.getElementById('btnReadQuestion');
+    if (btn) {
+        btn.innerHTML = '🔊';
+        btn.title = 'Activar modo lectura';
+    }
 }
 
 
