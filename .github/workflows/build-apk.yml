@@ -20,7 +20,8 @@ jobs:
           java-version: '21'
 
       - name: Install dependencies
-        run: npm install @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8 @capacitor/filesyste
+        run: npm install @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8 @capacitor/filesystem@8 --legacy-peer-deps
+    
 
       - name: Add Android platform
         run: npx cap add android
