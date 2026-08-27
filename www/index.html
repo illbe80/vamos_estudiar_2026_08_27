@@ -6955,58 +6955,59 @@ async function handleFile(e) {
 async function descargarExcel(nombreArchivo) {
     debugPantalla("Entrando en descargarExcel");
     try {
-        if (!workbook) throw new Error("No hay libro de trabajo cargado");
-        
-        // 1. Generar buffer con ExcelJS
         const buffer = await workbook.xlsx.writeBuffer();
+        const base64Data = arrayBufferToBase64(buffer);
         
-        // 2. Convertir buffer a Base64 (requerido por FileSystem)
-        let binary = "";
-        const bytes = new Uint8Array(buffer);
-        const len = bytes.byteLength;
-        for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
-        const base64Data = btoa(binary);
-
-        // 3. Detectar entorno Capacitor Nativo
         const isCapacitorNative = window.Capacitor?.isNativePlatform?.() === true;
         const FilesystemPlugin = window.Capacitor?.Plugins?.Filesystem;
 
         if (isCapacitorNative && FilesystemPlugin) {
-            debugPantalla("Modo Android Nativo: Usando @capacitor/filesystem");
+            debugPantalla("Modo Android Nativo");
             
-            // Intentar guardar en ExternalStorage (raíz interna del móvil)
-            // En muchos Android modernos esto equivale a /storage/emulated/0/
-            await FilesystemPlugin.writeFile({
-                path: nombreArchivo,
-                data: base64Data,
-                directory: FilesystemPlugin.Directory.ExternalStorage, 
-                recursive: true
-            });
-            
-            mostrarToast(`✅ Guardado en raíz del almacenamiento/${nombreArchivo}`);
-            return;
+            // Intentar guardar en ExternalStorage (funciona en Android 10-)
+            try {
+                await FilesystemPlugin.writeFile({
+                    path: nombreArchivo,
+                    data: base64Data,
+                    directory: FilesystemPlugin.Directory.ExternalStorage,
+                    recursive: true
+                });
+                mostrarToast(`✅ Guardado en raíz/${nombreArchivo}`);
+                return;
+            } catch (err) {
+                debugPantalla("ExternalStorage falló: " + err.message);
+                
+                // Fallback: intentar Documents (más permisivo en Android 11+)
+                try {
+                    await FilesystemPlugin.writeFile({
+                        path: nombreArchivo,
+                        data: base64Data,
+                        directory: FilesystemPlugin.Directory.Documents,
+                        recursive: true
+                    });
+                    mostrarToast(`✅ Guardado en Documentos/${nombreArchivo}`);
+                    return;
+                } catch (err2) {
+                    debugPantalla("Documents también falló: " + err2.message);
+                    throw new Error("No se pudo guardar. Verifica permisos en Ajustes > Apps > Vamos a Estudiar > Permisos > Archivos y multimedia > Permitir gestión de todos los archivos");
+                }
+            }
         } 
         
-        // FALLBACK: Modo Navegador / Web
-        debugPantalla("Modo Navegador/Web: Descarga estándar");
-        const blob = new Blob([buffer], {
-            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        });
+        // FALLBACK WEB
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
         a.download = nombreArchivo;
         document.body.appendChild(a);
         a.click();
-        setTimeout(() => {
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }, 100);
+        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
         mostrarToast('✅ Excel descargado (modo web)');
         
     } catch (err) {
         console.error('Error al guardar Excel:', err);
-        alert('❌ Error al guardar el Excel: ' + err.message);
+        alert('❌ Error al guardar: ' + err.message);
     }
 }
 
