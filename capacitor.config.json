@@ -1,6 +1,6 @@
 {
-  "appId": "com.oposiciones.preguntas2026",
-  "appName": "Preguntas Oposiciones",
+  "appId": "com.oposiciones.estudio2026",
+  "appName": "Vamos a Estudiar",
   "webDir": "www",
   "android": {
     "icon": "resources/icon.jpg"
