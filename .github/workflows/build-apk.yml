@@ -1,6 +1,8 @@
 name: Build Android APK
+
 on:
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -66,7 +68,7 @@ jobs:
           sed -i '/<application/i\    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>' "$MANIFEST"
           sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>' "$MANIFEST"
 
-      - name: Inject FileAccess native plugin (overwrite real Excel)
+      - name: Inject FileAccess plugin and MainActivity
         run: |
           set -e
           PKG=$(grep -oP 'package="\K[^"]+' android/app/src/main/AndroidManifest.xml | head -1 || true)
@@ -74,18 +76,19 @@ jobs:
             PKG=$(grep -oP 'namespace\s+"\K[^"]+' android/app/build.gradle | head -1 || true)
           fi
           if [ -z "$PKG" ]; then
-            PKG="com.getcapacitor.app"
+            PKG="com.oposiciones.estudio2026"
           fi
           echo "Package: $PKG"
           PKG_PATH=$(echo "$PKG" | tr '.' '/')
           DEST_DIR="android/app/src/main/java/${PKG_PATH}"
           mkdir -p "$DEST_DIR"
 
-          python3 - << PY
+          python3 -c "
           from pathlib import Path
-          pkg = """${PKG}"""
-          dest = Path("""${DEST_DIR}""") / "FileAccessPlugin.java"
-          code = r'''package ''' + pkg + r''';
+          pkg = '''$PKG'''
+          dest_dir = Path('''$DEST_DIR''')
+          dest_dir.mkdir(parents=True, exist_ok=True)
+          plugin = '''package %s;
 
           import android.content.Context;
           import android.content.Intent;
@@ -94,25 +97,21 @@ jobs:
           import android.net.Uri;
           import android.provider.OpenableColumns;
           import android.util.Base64;
-
           import androidx.activity.result.ActivityResult;
-
           import com.getcapacitor.JSObject;
           import com.getcapacitor.Plugin;
           import com.getcapacitor.PluginCall;
           import com.getcapacitor.PluginMethod;
           import com.getcapacitor.annotation.ActivityCallback;
           import com.getcapacitor.annotation.CapacitorPlugin;
-
           import java.io.ByteArrayOutputStream;
           import java.io.InputStream;
           import java.io.OutputStream;
 
-          @CapacitorPlugin(name = "FileAccess")
+          @CapacitorPlugin(name = \"FileAccess\")
           public class FileAccessPlugin extends Plugin {
-
-              private static final String PREFS = "FileAccessPrefs";
-              private static final String KEY_URI = "saved_uri";
+              private static final String PREFS = \"FileAccessPrefs\";
+              private static final String KEY_URI = \"saved_uri\";
               private PluginCall savedCall;
 
               private SharedPreferences prefs() {
@@ -130,7 +129,7 @@ jobs:
               }
 
               private String queryName(Uri uri) {
-                  String name = "examen.xlsx";
+                  String name = \"examen.xlsx\";
                   try (Cursor c = getContext().getContentResolver().query(uri, null, null, null, null)) {
                       if (c != null && c.moveToFirst()) {
                           int idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
@@ -145,39 +144,35 @@ jobs:
                   savedCall = call;
                   Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                   intent.addCategory(Intent.CATEGORY_OPENABLE);
-                  intent.setType("*/*");
-                  String[] mimes = new String[] {
-                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                      "application/vnd.ms-excel",
-                      "application/octet-stream"
-                  };
-                  intent.putExtra(Intent.EXTRA_MIME_TYPES, mimes);
+                  intent.setType(\"*/*\");
+                  intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
+                      \"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\",
+                      \"application/vnd.ms-excel\",
+                      \"application/octet-stream\"
+                  });
                   intent.addFlags(
                       Intent.FLAG_GRANT_READ_URI_PERMISSION
                       | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                       | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
                   );
-                  startActivityForResult(call, intent, "pickFileResult");
+                  startActivityForResult(call, intent, \"pickFileResult\");
               }
 
               @ActivityCallback
               private void pickFileResult(PluginCall call, ActivityResult result) {
                   if (call == null) call = savedCall;
                   if (call == null) return;
-
                   if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) {
                       JSObject ret = new JSObject();
-                      ret.put("success", false);
+                      ret.put(\"success\", false);
                       call.resolve(ret);
                       return;
                   }
-
                   Uri uri = result.getData().getData();
                   if (uri == null) {
-                      call.reject("URI nula");
+                      call.reject(\"URI nula\");
                       return;
                   }
-
                   final int takeFlags = result.getData().getFlags() &
                       (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
                   try {
@@ -190,31 +185,29 @@ jobs:
                           );
                       } catch (Exception ignored) {}
                   }
-
                   persistUri(uri);
-
                   JSObject ret = new JSObject();
-                  ret.put("success", true);
-                  ret.put("uri", uri.toString());
-                  ret.put("name", queryName(uri));
+                  ret.put(\"success\", true);
+                  ret.put(\"uri\", uri.toString());
+                  ret.put(\"name\", queryName(uri));
                   call.resolve(ret);
               }
 
               @PluginMethod
               public void readFile(PluginCall call) {
-                  String uriStr = call.getString("uri");
+                  String uriStr = call.getString(\"uri\");
                   if (uriStr == null || uriStr.isEmpty()) {
                       uriStr = prefs().getString(KEY_URI, null);
                   }
                   if (uriStr == null) {
-                      call.reject("No hay URI");
+                      call.reject(\"No hay URI\");
                       return;
                   }
                   try {
                       Uri uri = Uri.parse(uriStr);
                       InputStream in = getContext().getContentResolver().openInputStream(uri);
                       if (in == null) {
-                          call.reject("No se pudo abrir el archivo");
+                          call.reject(\"No se pudo abrir el archivo\");
                           return;
                       }
                       ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -224,39 +217,38 @@ jobs:
                           bos.write(buf, 0, n);
                       }
                       in.close();
-                      String b64 = Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP);
                       JSObject ret = new JSObject();
-                      ret.put("data", b64);
+                      ret.put(\"data\", Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP));
                       call.resolve(ret);
                   } catch (Exception e) {
-                      call.reject("Error leyendo: " + e.getMessage());
+                      call.reject(\"Error leyendo: \" + e.getMessage());
                   }
               }
 
               @PluginMethod
               public void writeFile(PluginCall call) {
-                  String uriStr = call.getString("uri");
-                  String data = call.getString("data");
+                  String uriStr = call.getString(\"uri\");
+                  String data = call.getString(\"data\");
                   if (uriStr == null || uriStr.isEmpty()) {
                       uriStr = prefs().getString(KEY_URI, null);
                   }
                   if (uriStr == null) {
-                      call.reject("No hay URI para escribir");
+                      call.reject(\"No hay URI para escribir\");
                       return;
                   }
                   if (data == null) {
-                      call.reject("No hay datos");
+                      call.reject(\"No hay datos\");
                       return;
                   }
                   try {
                       Uri uri = Uri.parse(uriStr);
                       byte[] bytes = Base64.decode(data, Base64.DEFAULT);
-                      OutputStream out = getContext().getContentResolver().openOutputStream(uri, "rwt");
+                      OutputStream out = getContext().getContentResolver().openOutputStream(uri, \"rwt\");
                       if (out == null) {
-                          out = getContext().getContentResolver().openOutputStream(uri, "wt");
+                          out = getContext().getContentResolver().openOutputStream(uri, \"wt\");
                       }
                       if (out == null) {
-                          call.reject("No se pudo abrir OutputStream");
+                          call.reject(\"No se pudo abrir OutputStream\");
                           return;
                       }
                       out.write(bytes);
@@ -264,10 +256,10 @@ jobs:
                       out.close();
                       persistUri(uri);
                       JSObject ret = new JSObject();
-                      ret.put("success", true);
+                      ret.put(\"success\", true);
                       call.resolve(ret);
                   } catch (Exception e) {
-                      call.reject("Error escribiendo: " + e.getMessage());
+                      call.reject(\"Error escribiendo: \" + e.getMessage());
                   }
               }
 
@@ -276,50 +268,48 @@ jobs:
                   String uriStr = prefs().getString(KEY_URI, null);
                   JSObject ret = new JSObject();
                   if (uriStr == null) {
-                      ret.put("uri", "");
-                      ret.put("hasPermission", false);
+                      ret.put(\"uri\", \"\");
+                      ret.put(\"hasPermission\", false);
                       call.resolve(ret);
                       return;
                   }
-                  ret.put("uri", uriStr);
-                  ret.put("hasPermission", true);
+                  ret.put(\"uri\", uriStr);
+                  ret.put(\"hasPermission\", true);
                   call.resolve(ret);
               }
           }
-          '''
-          dest.write_text(code)
-          print("Written", dest, "bytes", dest.stat().st_size)
-          PY
+          ''' % pkg
+          # Quitar sangría artificial de 2 espacios al inicio de cada línea del java
+          lines = []
+          for line in plugin.splitlines(True):
+              if line.startswith('  '):
+                  lines.append(line[2:])
+              else:
+                  lines.append(line)
+          (dest_dir / 'FileAccessPlugin.java').write_text(''.join(lines))
+          main = '''package %s;
 
-          # Reescribir MainActivity completa (evita romper la clase con sed)
-          MAIN=$(find android/app/src/main/java -name 'MainActivity.java' | head -1)
-          if [ -z "$MAIN" ]; then
-            MAIN="android/app/src/main/java/${PKG_PATH}/MainActivity.java"
-            mkdir -p "$(dirname "$MAIN")"
-          fi
-          python3 << PY
-from pathlib import Path
-pkg = "${PKG}"
-main = Path("${MAIN}")
-main.write_text(
-"""package %s;
+          import android.os.Bundle;
+          import com.getcapacitor.BridgeActivity;
 
-import android.os.Bundle;
-import com.getcapacitor.BridgeActivity;
-
-public class MainActivity extends BridgeActivity {
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
-        // Registrar plugin ANTES de super.onCreate
-        registerPlugin(FileAccessPlugin.class);
-        super.onCreate(savedInstanceState);
-    }
-}
-""" % pkg
-)
-print("MainActivity written to", main)
-print(main.read_text())
-PY
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(FileAccessPlugin.class);
+                  super.onCreate(savedInstanceState);
+              }
+          }
+          ''' % pkg
+          mlines = []
+          for line in main.splitlines(True):
+              if line.startswith('  '):
+                  mlines.append(line[2:])
+              else:
+                  mlines.append(line)
+          (dest_dir / 'MainActivity.java').write_text(''.join(mlines))
+          print('Plugin written')
+          print((dest_dir / 'MainActivity.java').read_text())
+          "
 
       - name: Build Release APK
         run: |
