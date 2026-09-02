@@ -22,7 +22,9 @@ jobs:
           java-version: '21'
 
       - name: Install dependencies
-        run: npm install
+        run: |
+          npm install
+          npm install @capacitor-community/text-to-speech
 
       - name: Add Android platform
         run: npx cap add android
