@@ -1994,6 +1994,9 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 
 <script>
+
+let currentTTSActive = false;
+
 // Constantes de columnas del Excel
 const S_COL_AÑO      = 0;
 const S_COL_NOMBRE   = 1;
@@ -7687,17 +7690,15 @@ function setReadButton(activo) {
     }
 }
 
-function readCurrentQuestion() {
-    // 1. Comprobar soporte básico
-    if (!window.speechSynthesis) {
-        mostrarErrorTTS("Tu dispositivo no reconoce el motor de voz.");
-        return;
-    }
+// Asegúrate de que esta línea esté al principio de tu bloque <script> o donde hagas los imports
+// import { TextToSpeech } from '@capacitor-community/text-to-speech'; 
+// NOTA: Si no usas módulos ES6, el plugin se cargará globalmente en window.Capacitor.Plugins
 
-    // 2. Detener lecturas anteriores para evitar superposiciones
-    window.speechSynthesis.cancel();
+let currentTTSActive = false;
 
-    // 3. Preparar el texto (limpiando signos para que no se pronuncien)
+async function readCurrentQuestion() {
+    stopReading(); // Detener cualquier lectura previa
+    
     const questionText = document.getElementById('questionText')?.innerText || '';
     let options = document.querySelectorAll('#options .option');
     if (options.length === 0) {
@@ -7706,6 +7707,7 @@ function readCurrentQuestion() {
     }
     if (!questionText && options.length === 0) return;
 
+    // Limpiar signos para que no se pronuncien
     const cleanQuestion = questionText.replace(/[¿¡]/g, '');
     let textToRead = `Pregunta: ${cleanQuestion}. `;
     const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -7716,93 +7718,88 @@ function readCurrentQuestion() {
         textToRead += `Opción ${label}: ${optText}. `;
     });
 
-    // 4. Configurar la locución
-    const utterance = new SpeechSynthesisUtterance(textToRead);
-    utterance.lang = 'es-ES'; // Forzar español de España
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
+    currentTTSActive = true;
 
-    // 5. Lógica robusta de selección de voz para Android WebView
-    const setVoiceAndSpeak = () => {
-        let voices = window.speechSynthesis.getVoices();
-        
-        // En Android WebView, getVoices() a veces devuelve un array vacío la primera vez
-        if (voices.length === 0) {
-            window.speechSynthesis.onvoiceschanged = () => {
-                voices = window.speechSynthesis.getVoices();
-                asignarYHablar(voices, utterance);
-            };
-            // Fallback de seguridad: intentar hablar tras 600ms aunque la lista siga vacía
-            setTimeout(() => {
-                if (window.speechSynthesis.getVoices().length === 0) {
-                    asignarYHablar([], utterance); // El sistema usará la voz predeterminada
-                }
-            }, 600);
-            return;
-        }
-        
-        asignarYHablar(voices, utterance);
-    };
-
-    const asignarYHablar = (voices, utterance) => {
-        // Prioridad: Masculino España -> Femenino España -> Cualquier España -> Latino
-        const voicePriority = [
-            v => v.lang.includes('es-ES') && (v.name.includes('Pablo') || v.name.includes('Male') || v.name.includes('Hombre') || v.name.includes('Jorge') || v.name.includes('Enrique') || v.name.includes('Alvaro') || v.name.includes('Google español')),
-            v => v.lang.includes('es-ES') && (v.name.includes('Female') || v.name.includes('Mujer') || v.name.includes('Helena') || v.name.includes('Laura') || v.name.includes('Monica') || v.name.includes('Elena')),
-            v => v.lang.includes('es-ES'),
-            v => v.lang.includes('es-419') && (v.name.includes('Male') || v.name.includes('Hombre')),
-            v => v.lang.includes('es-419'),
-            v => v.lang.includes('es')
-        ];
-
-        let selectedVoice = null;
-        for (const condition of voicePriority) {
-            selectedVoice = voices.find(condition);
-            if (selectedVoice) break;
-        }
-
-        if (selectedVoice) {
-            utterance.voice = selectedVoice;
-        }
-
-        // Intentar reproducir
+    // 1. INTENTAR USAR EL PLUGIN NATIVO DE CAPACITOR (Para la APK)
+    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
         try {
-            window.speechSynthesis.speak(utterance);
-        } catch (e) {
-            mostrarErrorTTS("El sistema bloqueó la reproducción de voz.");
+            // Accedemos al plugin de forma segura
+            const { TextToSpeech } = window.Capacitor.Plugins;
+            if (TextToSpeech) {
+                await TextToSpeech.speak({
+                    text: textToRead,
+                    lang: 'es-ES',
+                    rate: 1.0,
+                    pitch: 1.0,
+                    volume: 1.0
+                });
+                currentTTSActive = false;
+                return; // Éxito, salimos de la función
+            }
+        } catch (error) {
+            console.warn("Fallo en TTS nativo, usando fallback:", error);
         }
-    };
+    }
 
-    setVoiceAndSpeak();
+    // 2. FALLBACK: USAR EL NAVEGADOR (Para cuando lo pruebes en el PC)
+    if (window.speechSynthesis) {
+        const utterance = new SpeechSynthesisUtterance(textToRead);
+        utterance.lang = 'es-ES';
+        utterance.rate = 1.0;
+        utterance.onend = () => { currentTTSActive = false; };
+        utterance.onerror = () => { currentTTSActive = false; };
+        
+        // Lógica de selección de voz (la que ya teníamos)
+        const setVoiceAndSpeak = () => {
+            let voices = window.speechSynthesis.getVoices();
+            if (voices.length === 0) {
+                window.speechSynthesis.onvoiceschanged = () => {
+                    voices = window.speechSynthesis.getVoices();
+                    asignarYHablar(voices, utterance);
+                };
+                setTimeout(() => { if(window.speechSynthesis.getVoices().length === 0) asignarYHablar([], utterance); }, 600);
+                return;
+            }
+            asignarYHablar(voices, utterance);
+        };
+
+        const asignarYHablar = (voices, utterance) => {
+            const voicePriority = [
+                v => v.lang.includes('es-ES') && (v.name.includes('Pablo') || v.name.includes('Male') || v.name.includes('Hombre') || v.name.includes('Jorge') || v.name.includes('Google español')),
+                v => v.lang.includes('es-ES'),
+                v => v.lang.includes('es-419'),
+                v => v.lang.includes('es')
+            ];
+            for (const condition of voicePriority) {
+                const selected = voices.find(condition);
+                if (selected) { utterance.voice = selected; break; }
+            }
+            window.speechSynthesis.speak(utterance);
+        };
+        setVoiceAndSpeak();
+    } else {
+        mostrarErrorTTS("Tu dispositivo no tiene un motor de voz instalado.");
+        currentTTSActive = false;
+    }
 }
 
 function stopReading() {
+    currentTTSActive = false;
+    
+    // Detener plugin nativo
+    if (window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins.TextToSpeech) {
+        window.Capacitor.Plugins.TextToSpeech.stop().catch(() => {});
+    }
+    
+    // Detener navegador
     if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
     }
 }
 
-// Función auxiliar para mostrar un mensaje de error amigable y útil
-function mostrarErrorTTS(mensajeCorto) {
-    console.warn(mensajeCorto);
-    const modal = document.createElement('div');
-    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;';
-    modal.innerHTML = `
-        <div style="background:#ffffff;color:#333;padding:25px;border-radius:16px;max-width:380px;width:100%;text-align:center;font-family:system-ui, -apple-system, sans-serif;box-shadow:0 10px 25px rgba(0,0,0,0.5);">
-            <div style="font-size:3rem;margin-bottom:10px;">🔊</div>
-            <h3 style="margin:0 0 15px 0;color:#d32f2f;font-size:1.2rem;">Voz no disponible</h3>
-            <p style="font-size:15px;line-height:1.5;margin-bottom:15px;">${mensajeCorto}</p>
-            <div style="background:#f0f4f8;padding:15px;border-radius:10px;text-align:left;font-size:14px;color:#444;line-height:1.6;">
-                <strong>✅ Cómo solucionarlo en tu móvil:</strong><br>
-                1. Abre los <em>Ajustes</em> de tu Android.<br>
-                2. Busca <strong>"Texto a voz"</strong> o <em>"Salida de texto a voz"</em> (suele estar en "Sistema" o "Administración general").<br>
-                3. Selecciona <strong>"Motor de TTS de Google"</strong> como preferido.<br>
-                4. Entra en "Configuración del motor" y descarga el idioma <strong>"Español (España)"</strong>.
-            </div>
-            <button onclick="this.parentElement.parentElement.remove()" style="margin-top:20px;width:100%;padding:14px;background:#667eea;color:white;border:none;border-radius:10px;font-size:16px;font-weight:bold;cursor:pointer;">Entendido, lo activaré</button>
-        </div>
-    `;
-    document.body.appendChild(modal);
+function mostrarErrorTTS(mensaje) {
+    // (Mantén la función modal que te di en el mensaje anterior para que sea visualmente agradable)
+    console.warn(mensaje);
 }
 
 function desactivarModoLectura() {
