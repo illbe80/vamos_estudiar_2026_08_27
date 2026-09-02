@@ -6,9 +6,27 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
-      
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Add Android platform
+        run: npx cap add android
+
       - name: Decode Keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/vamos-estudiar.jks
@@ -21,54 +39,50 @@ jobs:
           keyAlias=${{ secrets.KEY_ALIAS }}
           keyPassword=${{ secrets.KEY_PASSWORD }}
           EOF
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          
-      - name: Setup Java JDK
-        uses: actions/setup-java@v5
-        with:
-          distribution: 'temurin'
-          java-version: '21'
-          
-      - name: Install dependencies
-        run: npm install
-        
-      - name: Add Android platform
-        run: npx cap add android
-        
+
       - name: Generate App Icons
         run: |
           npm install -g @capacitor/assets
           sudo apt-get update && sudo apt-get install -y imagemagick
           npx capacitor-assets generate --iconBackgroundColor '#ffffff'
-          
+
       - name: Sync Web Assets
         run: npx cap sync android
 
-      # ✅ PASO CRÍTICO: Inyectar permisos necesarios para FileSharer en Android 13+
+      - name: Configure Android Signing
+        run: |
+          sed -i '/buildTypes {/i\
+              signingConfigs {\
+                  release {\
+                      storeFile file("../app/vamos-estudiar.jks")\
+                      storePassword "'"${{ secrets.KEYSTORE_PASSWORD }}"'"\
+                      keyAlias "'"${{ secrets.KEY_ALIAS }}"'"\
+                      keyPassword "'"${{ secrets.KEY_PASSWORD }}"'"\
+                  }\
+              }' android/app/build.gradle
+
+          sed -i 's/signingConfig signingConfigs.debug/signingConfig signingConfigs.release/g' android/app/build.gradle
+
       - name: Add Storage Permissions to AndroidManifest
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-          # Eliminar permisos antiguos si existen para evitar conflictos con FileSharer
+
           sed -i '/WRITE_EXTERNAL_STORAGE/d' "$MANIFEST"
           sed -i '/READ_EXTERNAL_STORAGE/d' "$MANIFEST"
-          # Añadir permisos MediaStore nativos (Android 10+)
+
           sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>' "$MANIFEST"
           sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>' "$MANIFEST"
           sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>' "$MANIFEST"
-          # Mantener permiso legacy solo para Android 9 e inferiores
           sed -i '/<application/i\    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>' "$MANIFEST"
 
-      - name: Build Debug APK
+      - name: Build Release APK
         run: |
           chmod +x ./android/gradlew
-          cd android && ./gradlew assembleDebug
-          
+          cd android
+          ./gradlew assembleRelease
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: VamosAEstudiar-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/release/app-release.apk
