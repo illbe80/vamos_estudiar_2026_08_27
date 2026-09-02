@@ -1494,7 +1494,8 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
 	
 	</style>
 	
-<script src="https://code.responsivevoice.org/responsivevoice.js"></script>
+<!-- <script src="https://code.responsivevoice.org/responsivevoice.js"></script> -->
+
 </head>
 <body>
 
@@ -7644,8 +7645,7 @@ function toggleModoLectura() {
     const btn = document.getElementById('btnReadQuestion');
     if (modoLectura) {
         modoLectura = false;
-        // Protección: solo cancelar si la librería cargó
-        if (typeof responsiveVoice !== 'undefined') responsiveVoice.cancel();
+        stopReading(); // <-- Cambiado aquí
         if (btn) {
             btn.innerHTML = '🔊';
             btn.title = 'Activar modo lectura';
@@ -7688,11 +7688,14 @@ function setReadButton(activo) {
 }
 
 function readCurrentQuestion() {
-    if (typeof responsiveVoice === 'undefined') {
-        console.warn("ResponsiveVoice no ha cargado aún");
+    if (!window.speechSynthesis) {
+        console.warn("Tu navegador no soporta síntesis de voz nativa.");
+        alert("Tu dispositivo no soporta la funcionalidad de texto a voz nativa. Por favor, usa un navegador moderno (Chrome, Edge, Safari) o asegúrate de tener Google TTS instalado en Android.");
         return;
     }
-    responsiveVoice.cancel();
+    
+    // Detener cualquier lectura anterior
+    window.speechSynthesis.cancel();
     
     const questionText = document.getElementById('questionText')?.innerText || '';
     let options = document.querySelectorAll('#options .option');
@@ -7711,51 +7714,56 @@ function readCurrentQuestion() {
     const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
     
     Array.from(options).forEach((opt, index) => {
-        // También limpiamos las opciones por si acaso contienen estos signos
         const optText = opt.innerText.replace(/[¿¡\n]/g, ' ').trim(); 
         const label = labels[index] || `${index + 1}`;
         textToRead += `Opción ${label}: ${optText}. `;
     });
 
-    // 2. JERARQUÍA DE VOCES ESPECÍFICA
-    // Obtenemos todas las voces disponibles en este momento
-    const availableVoices = responsiveVoice.getVoices();
-    
-    // Definimos la prioridad exacta que solicitaste
-    const voicePriority = [
-        "Spanish Male",           // 1º Español España Masculino
-        "Spanish Female",         // 2º Español España Femenino  
-        "Latin American Spanish Male", // 3º Latinoamericano Masculino
-        "Latin American Spanish Female" // 4º Latinoamericano Femenino
-    ];
+    // 2. CONFIGURACIÓN DE LA VOZ NATIVA
+    const utterance = new SpeechSynthesisUtterance(textToRead);
+    utterance.lang = 'es-ES'; // Priorizar español de España
+    utterance.rate = 1.2; // Velocidad normal para que suene más natural
+    utterance.pitch = 1.0;
 
-    let selectedVoice = null;
-    
-    // Buscamos la primera voz disponible según nuestra lista de prioridad
-    for (const voiceName of voicePriority) {
-        const found = availableVoices.find(v => v.name === voiceName);
-        if (found) {
-            selectedVoice = voiceName;
-            break;
+    const setVoiceAndSpeak = () => {
+        const voices = window.speechSynthesis.getVoices();
+        
+        // Prioridad de voces: Masculino España -> Femenino España -> Masculino Latino -> Femenino Latino -> Cualquier español
+        const voicePriority = [
+            v => v.lang.includes('es-ES') && (v.name.includes('Pablo') || v.name.includes('Male') || v.name.includes('Hombre') || v.name.includes('Jorge') || v.name.includes('Enrique') || v.name.includes('Alvaro')),
+            v => v.lang.includes('es-ES') && (v.name.includes('Female') || v.name.includes('Mujer') || v.name.includes('Helena') || v.name.includes('Laura') || v.name.includes('Monica') || v.name.includes('Elena')),
+            v => v.lang.includes('es-ES'), // Cualquier voz de España
+            v => v.lang.includes('es-419') && (v.name.includes('Male') || v.name.includes('Hombre')),
+            v => v.lang.includes('es-419') && (v.name.includes('Female') || v.name.includes('Mujer')),
+            v => v.lang.includes('es-419'), // Cualquier voz latinoamericana
+            v => v.lang.includes('es') // Cualquier voz en español
+        ];
+
+        let selectedVoice = null;
+        for (const condition of voicePriority) {
+            selectedVoice = voices.find(condition);
+            if (selectedVoice) break;
         }
-    }
 
-    // Si ninguna de las prioritarias existe, usamos la primera voz en español que encuentre como fallback
-    if (!selectedVoice) {
-        const fallback = availableVoices.find(v => v.lang.includes('es'));
-        if (fallback) selectedVoice = fallback.name;
-    }
+        if (selectedVoice) {
+            utterance.voice = selectedVoice;
+        }
 
-    // Reproducimos con la voz seleccionada o sin especificar si no hay ninguna
-    responsiveVoice.speak(textToRead, selectedVoice || undefined, {
-        rate: 1.1,
-        pitch: 1,
-        volume: 1
-    });
+        window.speechSynthesis.speak(utterance);
+    };
+
+    // En algunos navegadores (como Chrome), las voces tardan un poco en cargarse de forma asíncrona
+    if (window.speechSynthesis.getVoices().length === 0) {
+        window.speechSynthesis.onvoiceschanged = setVoiceAndSpeak;
+    } else {
+        setVoiceAndSpeak();
+    }
 }
 
 function stopReading() {
-    if (typeof responsiveVoice !== 'undefined') responsiveVoice.cancel();
+    if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+    }
 }
 
 function desactivarModoLectura() {
