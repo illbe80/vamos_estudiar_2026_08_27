@@ -27,18 +27,20 @@ jobs:
       - name: Add Android platform
         run: npx cap add android
 
+      # ✅ Decodificar el Keystore directamente en android/app/
       - name: Decode Keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/vamos-estudiar.jks
           ls -lh android/app/vamos-estudiar.jks
 
+      # ✅ Crear keystore.properties dentro de android/app/ con ruta relativa simple
       - name: Create keystore.properties
         run: |
-          cat > android/keystore.properties << EOF
+          cat > android/app/keystore.properties << EOF
           storePassword=${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword=${{ secrets.KEY_PASSWORD }}
           keyAlias=${{ secrets.KEY_ALIAS }}
-          storeFile=app/vamos-estudiar.jks
+          storeFile=vamos-estudiar.jks
           EOF
 
       - name: Generate App Icons
@@ -50,37 +52,23 @@ jobs:
       - name: Sync Web Assets
         run: npx cap sync android
 
+      # ✅ Inyección robusta de la configuración de firma en build.gradle
       - name: Configure Android Signing
         run: |
-          # Añadir la carga del archivo keystore.properties al inicio del build.gradle
-          sed -i '1i def keystoreProperties = new Properties()\
-          def keystorePropertiesFile = rootProject.file('\''keystore.properties'\'')\
-          if (keystorePropertiesFile.exists()) {\
-              keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\
-          }' android/app/build.gradle
+          # 1. Cargar keystore.properties al inicio del archivo
+          sed -i '1i def keystorePropertiesFile = rootProject.file("app/keystore.properties")\ndef keystoreProperties = new Properties()\nif (keystorePropertiesFile.exists()) {\n    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\n}' android/app/build.gradle
           
-          # Añadir la configuración de firma después de la declaración de plugins
-          sed -i '/android {/a\
-              signingConfigs {\
-                  release {\
-                      keyAlias keystoreProperties['\''keyAlias'\'']\
-                      keyPassword keystoreProperties['\''keyPassword'\'']\
-                      storeFile keystoreProperties['\''storeFile'\''] ? file(keystoreProperties['\''storeFile'\'']) : null\
-                      storePassword keystoreProperties['\''storePassword'\'']\
-                  }\
-              }' android/app/build.gradle
+          # 2. Añadir el bloque signingConfigs justo después de "android {"
+          sed -i '/android {/a\    signingConfigs {\n        release {\n            keyAlias keystoreProperties['\''keyAlias'\'']\n            keyPassword keystoreProperties['\''keyPassword'\'']\n            storeFile file(keystoreProperties['\''storeFile'\''])\n            storePassword keystoreProperties['\''storePassword'\'']\n        }\n    }' android/app/build.gradle
           
-          # Aplicar la firma al buildType release
-          sed -i '/buildTypes {/,/}/{s/release {/release {\
-                  signingConfig signingConfigs.release/}' android/app/build.gradle
+          # 3. Aplicar la firma al buildType "release"
+          sed -i '/buildTypes {/,/release {/{s/release {/release {\n            signingConfig signingConfigs.release/}' android/app/build.gradle
 
       - name: Add Storage Permissions to AndroidManifest
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-
           sed -i '/WRITE_EXTERNAL_STORAGE/d' "$MANIFEST"
           sed -i '/READ_EXTERNAL_STORAGE/d' "$MANIFEST"
-
           sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>' "$MANIFEST"
           sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>' "$MANIFEST"
           sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>' "$MANIFEST"
@@ -96,12 +84,8 @@ jobs:
         run: |
           find android -name "*.apk" -type f
       
-      - name: Show build.gradle
-        run: |
-          cat android/app/build.gradle
-      
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: VamosAEstudiar-APK
+          name: VamosAEstudiar-Release-APK
           path: android/app/build/outputs/apk/release/app-release.apk
