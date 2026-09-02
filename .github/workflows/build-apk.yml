@@ -25,6 +25,8 @@ jobs:
         run: |
           npm install
           npm install @capacitor-community/text-to-speech
+          npm install @capacitor/filesystem
+          npm install @capawesome/capacitor-file-picker
 
       - name: Add Android platform
         run: npx cap add android
