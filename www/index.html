@@ -1494,7 +1494,7 @@ select:focus, select:hover { border-color: #667eea; box-shadow: 0 0 0 4px rgba(1
 	
 	</style>
 	
-<!-- <script src="https://code.responsivevoice.org/responsivevoice.js"></script> -->
+<script src="https://code.responsivevoice.org/responsivevoice.js"></script>
 
 </head>
 <body>
@@ -7761,10 +7761,9 @@ async function readCurrentQuestion() {
 
     currentTTSActive = true;
 
-    // 1. INTENTAR USAR EL PLUGIN NATIVO DE CAPACITOR (Para la APK)
+    // 1. PLUGIN NATIVO (APK)
     if (window.Capacitor && window.Capacitor.isNativePlatform()) {
         try {
-            // Accedemos al plugin de forma segura
             const { TextToSpeech } = window.Capacitor.Plugins;
             if (TextToSpeech) {
                 await TextToSpeech.speak({
@@ -7775,49 +7774,67 @@ async function readCurrentQuestion() {
                     volume: 1.0
                 });
                 currentTTSActive = false;
-                return; // Éxito, salimos de la función
+                return;
             }
         } catch (error) {
-            console.warn("Fallo en TTS nativo, usando fallback:", error);
+            console.warn("Fallo en TTS nativo:", error);
         }
     }
 
-    // 2. FALLBACK: USAR EL NAVEGADOR (Para cuando lo pruebes en el PC)
+    // 2. RESPONSIVEVOICE – voz masculina española
+    if (typeof responsiveVoice !== 'undefined') {
+        try {
+            responsiveVoice.speak(textToRead, "Spanish Male", {
+                rate: 1,
+                pitch: 1,
+                volume: 1,
+                onend: function () { currentTTSActive = false; },
+                onerror: function () { currentTTSActive = false; }
+            });
+            return;
+        } catch (e) {
+            console.warn("Error ResponsiveVoice:", e);
+        }
+    }
+
+    // 3. WEB SPEECH API – forzar Microsoft Pablo (voz masculina)
     if (window.speechSynthesis) {
         const utterance = new SpeechSynthesisUtterance(textToRead);
         utterance.lang = 'es-ES';
         utterance.rate = 1.0;
         utterance.onend = () => { currentTTSActive = false; };
         utterance.onerror = () => { currentTTSActive = false; };
-        
-        // Lógica de selección de voz (la que ya teníamos)
-        const setVoiceAndSpeak = () => {
-            let voices = window.speechSynthesis.getVoices();
-            if (voices.length === 0) {
-                window.speechSynthesis.onvoiceschanged = () => {
-                    voices = window.speechSynthesis.getVoices();
-                    asignarYHablar(voices, utterance);
-                };
-                setTimeout(() => { if(window.speechSynthesis.getVoices().length === 0) asignarYHablar([], utterance); }, 600);
-                return;
-            }
-            asignarYHablar(voices, utterance);
-        };
 
-        const asignarYHablar = (voices, utterance) => {
-            const voicePriority = [
-                v => v.lang.includes('es-ES') && (v.name.includes('Pablo') || v.name.includes('Male') || v.name.includes('Hombre') || v.name.includes('Jorge') || v.name.includes('Google español')),
-                v => v.lang.includes('es-ES'),
-                v => v.lang.includes('es-419'),
-                v => v.lang.includes('es')
-            ];
-            for (const condition of voicePriority) {
-                const selected = voices.find(condition);
-                if (selected) { utterance.voice = selected; break; }
+        const hablarConVoz = (voices) => {
+            // Prioridad estricta: Pablo primero
+            let selected =
+                voices.find(v => /pablo/i.test(v.name) && v.lang.startsWith('es')) ||
+                voices.find(v => /jorge|diego|enrique|raul|male|hombre|masculino/i.test(v.name) && v.lang.startsWith('es')) ||
+                voices.find(v => v.lang === 'es-ES') ||
+                voices.find(v => v.lang.startsWith('es'));
+
+            if (selected) {
+                utterance.voice = selected;
+                console.log('Voz seleccionada:', selected.name);
+            } else {
+                console.log('No se encontró voz española, usando la por defecto');
             }
             window.speechSynthesis.speak(utterance);
         };
-        setVoiceAndSpeak();
+
+        let voices = window.speechSynthesis.getVoices();
+        if (voices.length === 0) {
+            window.speechSynthesis.onvoiceschanged = () => {
+                hablarConVoz(window.speechSynthesis.getVoices());
+            };
+            // Por si onvoiceschanged no dispara
+            setTimeout(() => {
+                const v = window.speechSynthesis.getVoices();
+                if (v.length > 0) hablarConVoz(v);
+            }, 400);
+        } else {
+            hablarConVoz(voices);
+        }
     } else {
         mostrarErrorTTS("Tu dispositivo no tiene un motor de voz instalado.");
         currentTTSActive = false;
@@ -7826,12 +7843,17 @@ async function readCurrentQuestion() {
 
 function stopReading() {
     currentTTSActive = false;
-    
+
+    // Detener ResponsiveVoice
+    if (typeof responsiveVoice !== 'undefined') {
+        try { responsiveVoice.cancel(); } catch (e) {}
+    }
+
     // Detener plugin nativo
     if (window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins.TextToSpeech) {
         window.Capacitor.Plugins.TextToSpeech.stop().catch(() => {});
     }
-    
+
     // Detener navegador
     if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
