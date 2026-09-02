@@ -291,23 +291,35 @@ jobs:
           print("Written", dest, "bytes", dest.stat().st_size)
           PY
 
+          # Reescribir MainActivity completa (evita romper la clase con sed)
           MAIN=$(find android/app/src/main/java -name 'MainActivity.java' | head -1)
-          if [ -n "$MAIN" ]; then
-            if ! grep -q 'FileAccessPlugin' "$MAIN"; then
-              if ! grep -q "import ${PKG}.FileAccessPlugin;" "$MAIN"; then
-                sed -i "/^package /a import ${PKG}.FileAccessPlugin;" "$MAIN"
-              fi
-              if grep -q 'super.onCreate' "$MAIN"; then
-                sed -i "/super.onCreate/a\        registerPlugin(FileAccessPlugin.class);" "$MAIN"
-              else
-                sed -i "/class MainActivity/a\    @Override\n    public void onCreate(android.os.Bundle savedInstanceState) {\n        super.onCreate(savedInstanceState);\n        registerPlugin(FileAccessPlugin.class);\n    }" "$MAIN"
-              fi
-            fi
-            echo "MainActivity:"
-            cat "$MAIN"
-          else
-            echo "WARNING: MainActivity.java not found"
+          if [ -z "$MAIN" ]; then
+            MAIN="android/app/src/main/java/${PKG_PATH}/MainActivity.java"
+            mkdir -p "$(dirname "$MAIN")"
           fi
+          python3 << PY
+from pathlib import Path
+pkg = "${PKG}"
+main = Path("${MAIN}")
+main.write_text(
+"""package %s;
+
+import android.os.Bundle;
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        // Registrar plugin ANTES de super.onCreate
+        registerPlugin(FileAccessPlugin.class);
+        super.onCreate(savedInstanceState);
+    }
+}
+""" % pkg
+)
+print("MainActivity written to", main)
+print(main.read_text())
+PY
 
       - name: Build Release APK
         run: |
