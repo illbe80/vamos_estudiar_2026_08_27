@@ -2026,12 +2026,13 @@ let currentSheetName = null;
 let nombreArchivoOriginal = null;
 let archivoGuardadoEnStorage = false;
 
-// Handle del fichero para sobrescritura (Web File System Access API)
+// Handle web (File System Access API) para sobrescribir
 let fileHandleActual = null;
-// URI nativa del fichero en APK (para sobrescribir)
-let nativeFileUri = null;
+// En APK trabajamos sobre UN solo fichero interno (siempre se sobrescribe)
+const WORKING_FILE_PATH = 'vamos_estudiar_working.xlsx';
+let nativeWorkingReady = false;
 
-// ── IndexedDB: guardar/recuperar el FileSystemFileHandle ──
+// IndexedDB para persistir FileSystemFileHandle (Chrome/Edge)
 const IDB_NAME = 'VamosEstudiarFS';
 const IDB_STORE = 'handles';
 
@@ -2039,9 +2040,8 @@ function openIdb() {
     return new Promise((resolve, reject) => {
         const req = indexedDB.open(IDB_NAME, 1);
         req.onupgradeneeded = () => {
-            const db = req.result;
-            if (!db.objectStoreNames.contains(IDB_STORE)) {
-                db.createObjectStore(IDB_STORE);
+            if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+                req.result.createObjectStore(IDB_STORE);
             }
         };
         req.onsuccess = () => resolve(req.result);
@@ -2058,10 +2058,7 @@ async function guardarHandleEnIdb(handle) {
             tx.oncomplete = () => resolve(true);
             tx.onerror = () => reject(tx.error);
         });
-    } catch (e) {
-        console.warn('No se pudo guardar handle en IDB:', e);
-        return false;
-    }
+    } catch (e) { return false; }
 }
 
 async function cargarHandleDesdeIdb() {
@@ -2073,35 +2070,44 @@ async function cargarHandleDesdeIdb() {
             req.onsuccess = () => resolve(req.result || null);
             req.onerror = () => reject(req.error);
         });
-    } catch (e) {
-        return null;
+    } catch (e) { return null; }
+}
+
+function arrayBufferToBase64Local(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
     }
+    return btoa(binary);
 }
 
-async function borrarHandleIdb() {
-    try {
-        const db = await openIdb();
-        return new Promise((resolve) => {
-            const tx = db.transaction(IDB_STORE, 'readwrite');
-            tx.objectStore(IDB_STORE).delete('excelHandle');
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => resolve();
-        });
-    } catch (e) { /* ignore */ }
+function base64ToArrayBufferLocal(b64) {
+    const binaryString = atob(b64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+    return bytes.buffer;
 }
 
-/** Carga un ArrayBuffer en el workbook global y muestra selector de materia */
 async function cargarWorkbookDesdeBuffer(arrayBuffer, nombreBase) {
-    if (typeof ExcelJS === 'undefined') {
-        throw new Error('ExcelJS no está cargado');
-    }
+    if (typeof ExcelJS === 'undefined') throw new Error('ExcelJS no está cargado');
     const newWorkbook = new ExcelJS.Workbook();
     await newWorkbook.xlsx.load(arrayBuffer);
     workbook = newWorkbook;
-    if (nombreBase) {
-        nombreArchivoOriginal = String(nombreBase).replace(/\.[^/.]+$/, '');
-    }
+    if (nombreBase) nombreArchivoOriginal = String(nombreBase).replace(/\.[^/.]+$/, '');
     showMateriaSelect();
+}
+
+/** Plugins nativos Capacitor (Filesystem / FilePicker) */
+function getFilesystem() {
+    return window.Capacitor?.Plugins?.Filesystem || null;
+}
+function getFilePicker() {
+    return window.Capacitor?.Plugins?.FilePicker || null;
+}
+function isNativeApp() {
+    return !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
 }
 
 let ordenOpcionesSupuesto = {};
@@ -2196,14 +2202,8 @@ if (fileData.data) {
     workbook = newWorkbook;
     
     nombreArchivoOriginal = "examen";
-    try {
-        const meta = JSON.parse(localStorage.getItem("archivoOriginal") || "null");
-        if (meta && meta.nombreBase) nombreArchivoOriginal = meta.nombreBase;
-    } catch (e) {}
     archivoGuardadoEnStorage = true;
-    nativeFileUri = saved.uri; // para sobrescribir al guardar
-    fileHandleActual = null;
-    debugPantalla("Archivo restaurado correctamente (URI nativa lista para sobrescribir)");
+    debugPantalla("Archivo restaurado correctamente");
     
     // El resto del código sigue igual...
     const savedSheet = localStorage.getItem("currentSheetName");
@@ -2237,51 +2237,51 @@ if (fileData.data) {
         } catch (err) {
             debugPantalla("Error restaurando archivo: " + err.message);
         }
-    } else {
-        debugPantalla("Modo navegador (sin plugin)");
 
-        // Intentar restaurar FileSystemFileHandle (Chrome/Edge) para seguir sobrescribiendo
+        // Restaurar copia de trabajo interna (Filesystem Directory.DATA)
         try {
-            const handle = await cargarHandleDesdeIdb();
-            if (handle) {
-                let perm = await handle.queryPermission({ mode: "readwrite" });
-                if (perm !== "granted") {
-                    // No podemos pedir permiso sin gesto del usuario; solo lectura si ya está
-                    perm = await handle.queryPermission({ mode: "read" });
-                }
-                if (perm === "granted") {
-                    const file = await handle.getFile();
-                    const arrayBuffer = await file.arrayBuffer();
+            const Filesystem = getFilesystem && getFilesystem();
+            if (Filesystem && localStorage.getItem('nativeWorkingReady') === '1') {
+                debugPantalla('Restaurando fichero interno ' + WORKING_FILE_PATH);
+                const read = await Filesystem.readFile({
+                    path: WORKING_FILE_PATH,
+                    directory: 'DATA'
+                });
+                if (read && read.data) {
+                    const ab = base64ToArrayBufferLocal(read.data);
                     const newWorkbook = new ExcelJS.Workbook();
-                    await newWorkbook.xlsx.load(arrayBuffer);
+                    await newWorkbook.xlsx.load(ab);
                     workbook = newWorkbook;
-                    fileHandleActual = handle;
-                    nativeFileUri = null;
+                    nativeWorkingReady = true;
                     archivoGuardadoEnStorage = true;
-                    nombreArchivoOriginal = file.name.replace(/\.[^/.]+$/, "");
-                    debugPantalla("Handle web restaurado: " + file.name);
-
-                    const savedSheet = localStorage.getItem("currentSheetName");
+                    try {
+                        const meta = JSON.parse(localStorage.getItem('archivoOriginal') || 'null');
+                        if (meta && meta.nombreBase) nombreArchivoOriginal = meta.nombreBase;
+                    } catch (e) {}
+                    if (!nombreArchivoOriginal) nombreArchivoOriginal = 'examen';
+                    debugPantalla('Fichero interno restaurado OK');
+                    const savedSheet = localStorage.getItem('currentSheetName');
                     if (savedSheet && workbook.worksheets.some(ws => ws.name === savedSheet)) {
                         showMateriaSelect();
-                        const sel = document.getElementById("materiaSelect");
+                        const sel = document.getElementById('materiaSelect');
                         if (sel) {
                             sel.value = workbook.worksheets.findIndex(ws => ws.name === savedSheet);
                             loadMateriaFilters();
-                            const savedSection = localStorage.getItem("currentActiveSection");
-                            if (savedSection === "repasar") cambiarSeccion("repasar");
+                            if (localStorage.getItem('currentActiveSection') === 'repasar') {
+                                cambiarSeccion('repasar');
+                            }
                         }
                         return;
                     }
                     showMateriaSelect();
                     return;
-                } else {
-                    debugPantalla("Handle en IDB sin permiso activo (habrá que volver a elegir el archivo)");
                 }
             }
         } catch (e) {
-            debugPantalla("No se pudo restaurar handle web: " + (e && e.message));
+            debugPantalla('No hay fichero interno o error: ' + (e && e.message));
         }
+    } else {
+        debugPantalla("Modo navegador (sin plugin)");
     }
 
     // ✅ Mostrar pantalla principal
@@ -6984,131 +6984,146 @@ function cargarRepasoDesdeTop(tipo, name) {
 async function seleccionarArchivoConPermisos() {
     debugPantalla("CLICK seleccionar archivo");
 
-    const FileAccess =
-        window.FileAccess ||
-        window.Capacitor?.Plugins?.FileAccess;
-
-    debugPantalla("FileAccess existe: " + !!FileAccess);
-
     // ══════════════════════════════════════════════════════
-    // APK / CAPACITOR NATIVO
+    // APK: FilePicker + copia a almacenamiento INTERNO (1 solo fichero)
     // ══════════════════════════════════════════════════════
-    if (FileAccess) {
+    if (isNativeApp()) {
+        const FilePicker = getFilePicker();
+        const Filesystem = getFilesystem();
+        const FileAccess = window.FileAccess || window.Capacitor?.Plugins?.FileAccess;
+
         try {
-            debugPantalla("Antes de pickFile");
-            const result = await FileAccess.pickFileWithPermission();
-            debugPantalla("Después de pickFile");
+            let base64Data = null;
+            let fileName = 'examen.xlsx';
 
-            if (result && result.success && result.uri) {
-                resetApp();
-                fileHandleActual = null;
-                nativeFileUri = result.uri;
-                archivoGuardadoEnStorage = true;
-
-                nombreArchivoOriginal = result.name
-                    ? result.name.replace(/\.[^/.]+$/, "")
-                    : "examen";
-
-                localStorage.setItem("nativeFileUri", result.uri);
-                localStorage.setItem("archivoOriginal", JSON.stringify({
-                    name: result.name || (nombreArchivoOriginal + ".xlsx"),
-                    nombreBase: nombreArchivoOriginal
-                }));
-
-                const fileData = await FileAccess.readFile({ uri: result.uri });
-                if (fileData && fileData.data) {
-                    const binaryString = atob(fileData.data);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }
-                    await cargarWorkbookDesdeBuffer(bytes.buffer, nombreArchivoOriginal);
-                    debugPantalla("Excel cargado (nativo). URI guardada para sobrescribir.");
-                    mostrarToast("✅ Archivo cargado (se sobrescribirá al guardar)");
-                }
-            }
-        } catch (err) {
-            debugPantalla("ERROR FileAccess: " + err.message);
-            alert("Error: " + err.message);
-        }
-        return;
-    }
-
-    // ══════════════════════════════════════════════════════
-    // WEB: File System Access API (permite sobrescribir)
-    // ══════════════════════════════════════════════════════
-    if (window.showOpenFilePicker) {
-        try {
-            debugPantalla("Usando showOpenFilePicker (sobrescritura posible)");
-            const [handle] = await window.showOpenFilePicker({
-                types: [{
-                    description: "Excel",
-                    accept: {
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
-                        "application/vnd.ms-excel": [".xls"]
-                    }
-                }],
-                multiple: false,
-                excludeAcceptAllOption: false
-            });
-
-            // Pedir permiso de lectura + escritura
-            const perm = await handle.requestPermission({ mode: "readwrite" });
-            if (perm !== "granted") {
-                // Intentar al menos lectura
-                const permRead = await handle.requestPermission({ mode: "read" });
-                if (permRead !== "granted") {
-                    alert("No se concedió permiso para leer el archivo.");
+            // Preferir FilePicker oficial
+            if (FilePicker && typeof FilePicker.pickFiles === 'function') {
+                debugPantalla('APK: FilePicker.pickFiles');
+                const picked = await FilePicker.pickFiles({
+                    types: [
+                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        'application/vnd.ms-excel'
+                    ],
+                    readData: true,
+                    limit: 1
+                });
+                const f = picked?.files?.[0];
+                if (!f) {
+                    debugPantalla('Usuario canceló FilePicker');
                     return;
                 }
-                debugPantalla("Solo permiso de lectura (no se podrá sobrescribir)");
+                fileName = f.name || fileName;
+                base64Data = f.data; // base64
+                if (!base64Data && f.path && Filesystem) {
+                    const read = await Filesystem.readFile({ path: f.path });
+                    base64Data = read.data;
+                }
+            } else if (FileAccess && typeof FileAccess.pickFileWithPermission === 'function') {
+                debugPantalla('APK: FileAccess.pickFileWithPermission');
+                const result = await FileAccess.pickFileWithPermission();
+                if (!result?.success || !result.uri) return;
+                fileName = result.name || fileName;
+                const fileData = await FileAccess.readFile({ uri: result.uri });
+                base64Data = fileData?.data;
+            } else {
+                alert('No hay plugin de selección de archivos en el APK.\nAñade @capawesome/capacitor-file-picker y @capacitor/filesystem al build.');
+                return;
+            }
+
+            if (!base64Data) {
+                alert('No se pudo leer el archivo seleccionado.');
+                return;
             }
 
             resetApp();
-            fileHandleActual = handle;
-            nativeFileUri = null;
-            archivoGuardadoEnStorage = true;
-
-            await guardarHandleEnIdb(handle);
-
-            const file = await handle.getFile();
-            nombreArchivoOriginal = file.name.replace(/\.[^/.]+$/, "");
-            localStorage.setItem("archivoOriginal", JSON.stringify({
-                name: file.name,
+            fileHandleActual = null;
+            nombreArchivoOriginal = fileName.replace(/\.[^/.]+$/, '');
+            localStorage.setItem('archivoOriginal', JSON.stringify({
+                name: fileName,
                 nombreBase: nombreArchivoOriginal
             }));
 
-            const arrayBuffer = await file.arrayBuffer();
-            await cargarWorkbookDesdeBuffer(arrayBuffer, nombreArchivoOriginal);
-            debugPantalla("Excel cargado con FileSystemHandle: " + file.name);
-            mostrarToast("✅ Archivo cargado (se sobrescribirá al guardar)");
+            // Guardar copia de trabajo INTERNA (siempre el mismo path → se sobrescribe)
+            if (Filesystem) {
+                await Filesystem.writeFile({
+                    path: WORKING_FILE_PATH,
+                    data: base64Data,
+                    directory: 'DATA', // Directory.Data
+                    recursive: true
+                });
+                nativeWorkingReady = true;
+                archivoGuardadoEnStorage = true;
+                localStorage.setItem('nativeWorkingReady', '1');
+                debugPantalla('Copia interna guardada: ' + WORKING_FILE_PATH);
+            } else {
+                nativeWorkingReady = false;
+                debugPantalla('Filesystem no disponible; solo memoria');
+            }
+
+            await cargarWorkbookDesdeBuffer(base64ToArrayBufferLocal(base64Data), nombreArchivoOriginal);
+            mostrarToast('✅ Archivo cargado (se sobrescribirá el mismo al guardar)');
             return;
         } catch (err) {
-            // Usuario canceló el diálogo
-            if (err && (err.name === "AbortError" || err.name === "NotAllowedError")) {
-                debugPantalla("Usuario canceló el selector");
-                return;
-            }
-            debugPantalla("Error showOpenFilePicker: " + err.message + " → fallback input");
-            // Caer al input clásico
+            debugPantalla('ERROR APK pick: ' + (err && err.message));
+            if (err && err.message && /cancel/i.test(err.message)) return;
+            alert('Error al seleccionar archivo: ' + (err && err.message ? err.message : String(err)));
+            return;
         }
     }
 
     // ══════════════════════════════════════════════════════
-    // FALLBACK: <input type="file"> (NO permite sobrescribir)
+    // WEB: File System Access API (sobrescribe el mismo fichero)
     // ══════════════════════════════════════════════════════
-    debugPantalla("Fallback a input[type=file] (sin sobrescritura garantizada)");
-    const isMateriaVisible =
-        !document.getElementById("materiaContainer").classList.contains("hidden");
-    const input = isMateriaVisible
-        ? (document.getElementById("fileInputMateria") || document.getElementById("fileInput"))
-        : (document.getElementById("fileInput") || document.getElementById("fileInputMateria"));
+    if (window.showOpenFilePicker) {
+        try {
+            debugPantalla('Web: showOpenFilePicker');
+            const [handle] = await window.showOpenFilePicker({
+                types: [{
+                    description: 'Excel',
+                    accept: {
+                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+                        'application/vnd.ms-excel': ['.xls']
+                    }
+                }],
+                multiple: false
+            });
+            let perm = await handle.requestPermission({ mode: 'readwrite' });
+            if (perm !== 'granted') {
+                perm = await handle.requestPermission({ mode: 'read' });
+                if (perm !== 'granted') {
+                    alert('No se concedió permiso para el archivo.');
+                    return;
+                }
+            }
+            resetApp();
+            fileHandleActual = handle;
+            nativeWorkingReady = false;
+            archivoGuardadoEnStorage = true;
+            await guardarHandleEnIdb(handle);
 
-    if (input) {
-        input.click();
-    } else {
-        alert("No se encontró ningún selector de archivos.");
+            const file = await handle.getFile();
+            nombreArchivoOriginal = file.name.replace(/\.[^/.]+$/, '');
+            localStorage.setItem('archivoOriginal', JSON.stringify({
+                name: file.name,
+                nombreBase: nombreArchivoOriginal
+            }));
+            await cargarWorkbookDesdeBuffer(await file.arrayBuffer(), nombreArchivoOriginal);
+            mostrarToast('✅ Archivo cargado (se sobrescribirá al guardar)');
+            return;
+        } catch (err) {
+            if (err && (err.name === 'AbortError' || err.name === 'NotAllowedError')) return;
+            debugPantalla('Error showOpenFilePicker: ' + (err && err.message));
+        }
     }
+
+    // Fallback input
+    debugPantalla('Fallback input[type=file]');
+    const isMateriaVisible = !document.getElementById('materiaContainer').classList.contains('hidden');
+    const input = isMateriaVisible
+        ? (document.getElementById('fileInputMateria') || document.getElementById('fileInput'))
+        : (document.getElementById('fileInput') || document.getElementById('fileInputMateria'));
+    if (input) input.click();
+    else alert('No se encontró selector de archivos.');
 }
 
 
@@ -7116,22 +7131,16 @@ async function seleccionarArchivoConPermisos() {
 // CARGA DE ARCHIVO (fallback web vía <input type=file>)
 // ═══════════════════════════════════════════════════════════
 async function handleFile(e) {
-    debugPantalla("handleFile() llamado");
     const file = e.target.files?.[0];
-    if (!file) {
-        debugPantalla("handleFile: sin archivo");
-        return;
-    }
+    if (!file) return;
 
     resetApp();
-    // input clásico NO da handle escribible
     fileHandleActual = null;
-    nativeFileUri = null;
+    nativeWorkingReady = false;
     archivoGuardadoEnStorage = false;
-    await borrarHandleIdb();
 
-    nombreArchivoOriginal = file.name.replace(/\.[^/.]+$/, "");
-    localStorage.setItem("archivoOriginal", JSON.stringify({
+    nombreArchivoOriginal = file.name.replace(/\.[^/.]+$/, '');
+    localStorage.setItem('archivoOriginal', JSON.stringify({
         name: file.name,
         nombreBase: nombreArchivoOriginal
     }));
@@ -7139,127 +7148,73 @@ async function handleFile(e) {
     const reader = new FileReader();
     reader.onload = async (ev) => {
         try {
-            if (typeof ExcelJS === "undefined") {
-                alert("ExcelJS no está cargado.");
-                return;
-            }
             await cargarWorkbookDesdeBuffer(ev.target.result, nombreArchivoOriginal);
-            debugPantalla("Excel cargado vía input (al guardar se descargará copia)");
-            mostrarToast("⚠️ Archivo cargado. Al guardar se descargará una copia (elige el mismo nombre y acepta reemplazar).");
+            mostrarToast('⚠️ Cargado sin permiso de escritura. Al guardar se descargará una copia.');
         } catch (err) {
             console.error(err);
-            alert("Error al leer el archivo Excel: " + err.message);
+            alert('Error al leer el archivo Excel: ' + err.message);
         }
-        const input1 = document.getElementById("fileInput");
-        if (input1) input1.value = "";
-        const input2 = document.getElementById("fileInputMateria");
-        if (input2) input2.value = "";
+        const input1 = document.getElementById('fileInput');
+        if (input1) input1.value = '';
+        const input2 = document.getElementById('fileInputMateria');
+        if (input2) input2.value = '';
     };
     reader.readAsArrayBuffer(file);
 }
 
 // ═══════════════════════════════════════════════════════════
-// GUARDAR EXCEL — sobrescribe el mismo fichero cuando es posible
+// GUARDAR EXCEL — sobrescribe el mismo fichero
 // ═══════════════════════════════════════════════════════════
 async function descargarExcel(nombreArchivo) {
-    debugPantalla("Entrando en descargarExcel: " + nombreArchivo);
+    debugPantalla('Entrando en descargarExcel: ' + nombreArchivo);
     try {
-        if (!workbook) throw new Error("No hay libro de trabajo cargado");
+        if (!workbook) throw new Error('No hay libro de trabajo cargado');
 
         const buffer = await workbook.xlsx.writeBuffer();
-        const bytes = new Uint8Array(buffer);
-        const mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        const base64Data = arrayBufferToBase64Local(buffer);
+        const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        const Filesystem = getFilesystem();
 
-        // Helper base64 (para plugins nativos)
-        let binary = "";
-        const chunkSize = 0x8000;
-        for (let i = 0; i < bytes.length; i += chunkSize) {
-            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-        }
-        const base64Data = btoa(binary);
-
-        const isCapacitorNative = window.Capacitor &&
-            typeof window.Capacitor.isNativePlatform === "function" &&
-            window.Capacitor.isNativePlatform() === true;
-
-        const FileAccess = window.FileAccess || window.Capacitor?.Plugins?.FileAccess;
-
-        // ── 1) APK: escribir sobre la URI original (sobrescribir) ──
-        if (isCapacitorNative && FileAccess && nativeFileUri) {
-            // Preferir writeFile / write si el plugin lo expone
-            if (typeof FileAccess.writeFile === "function") {
-                debugPantalla("Nativo: FileAccess.writeFile sobre URI original");
-                await FileAccess.writeFile({
-                    uri: nativeFileUri,
-                    data: base64Data,
-                    path: nativeFileUri
-                });
-                mostrarToast("✅ Archivo sobrescrito correctamente");
-                return;
-            }
-            if (typeof FileAccess.write === "function") {
-                debugPantalla("Nativo: FileAccess.write sobre URI original");
-                await FileAccess.write({
-                    uri: nativeFileUri,
-                    data: base64Data
-                });
-                mostrarToast("✅ Archivo sobrescrito correctamente");
-                return;
-            }
-            if (typeof FileAccess.saveFile === "function") {
-                debugPantalla("Nativo: FileAccess.saveFile sobre URI original");
-                await FileAccess.saveFile({
-                    uri: nativeFileUri,
-                    data: base64Data,
-                    filename: nombreArchivo
-                });
-                mostrarToast("✅ Archivo sobrescrito correctamente");
-                return;
-            }
-        }
-
-        // ── 2) APK fallback: FileSharer (puede crear copia en Descargas) ──
-        const FileSharer = window.Capacitor?.Plugins?.FileSharer;
-        if (isCapacitorNative && FileSharer && typeof FileSharer.save === "function") {
-            debugPantalla("Nativo: FileSharer.save (puede no sobrescribir)");
-            await FileSharer.save({
-                filename: nombreArchivo,
-                contentType: mime,
-                base64Data: base64Data,
-                android: { saveDirectory: "downloads" }
+        // ── 1) APK: sobrescribir SIEMPRE el fichero interno ──
+        if (isNativeApp() && Filesystem) {
+            debugPantalla('APK: sobrescribiendo ' + WORKING_FILE_PATH + ' en Directory.DATA');
+            await Filesystem.writeFile({
+                path: WORKING_FILE_PATH,
+                data: base64Data,
+                directory: 'DATA',
+                recursive: true
             });
-            mostrarToast("✅ Guardado en Descargas/" + nombreArchivo);
+            nativeWorkingReady = true;
+            localStorage.setItem('nativeWorkingReady', '1');
+            archivoGuardadoEnStorage = true;
+            mostrarToast('✅ Progreso guardado (mismo archivo, sin copias)');
             return;
         }
 
-        // ── 3) WEB: File System Access API → sobrescribir el mismo archivo ──
+        // ── 2) WEB: FileSystemFileHandle → sobrescribir ──
         if (fileHandleActual) {
             try {
-                // Renovar permiso por si el navegador lo revocó
-                let perm = await fileHandleActual.queryPermission({ mode: "readwrite" });
-                if (perm !== "granted") {
-                    perm = await fileHandleActual.requestPermission({ mode: "readwrite" });
+                let perm = await fileHandleActual.queryPermission({ mode: 'readwrite' });
+                if (perm !== 'granted') {
+                    perm = await fileHandleActual.requestPermission({ mode: 'readwrite' });
                 }
-                if (perm === "granted") {
-                    debugPantalla("Web: sobrescribiendo con FileSystemFileHandle");
+                if (perm === 'granted') {
                     const writable = await fileHandleActual.createWritable();
                     await writable.write(buffer);
                     await writable.close();
-                    mostrarToast("✅ Archivo sobrescrito: " + (nombreArchivoOriginal || nombreArchivo) + ".xlsx");
+                    mostrarToast('✅ Archivo sobrescrito correctamente');
                     return;
                 }
-                debugPantalla("Sin permiso readwrite en handle → descarga clásica");
             } catch (e) {
-                debugPantalla("Error escribiendo handle: " + e.message);
-                console.warn(e);
+                debugPantalla('Error handle write: ' + e.message);
             }
         }
 
-        // ── 4) Fallback web: descarga clásica (el navegador puede poner (1)) ──
-        debugPantalla("Fallback: descarga web estándar");
+        // ── 3) Fallback descarga ──
+        debugPantalla('Fallback descarga web');
         const blob = new Blob([buffer], { type: mime });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
+        const a = document.createElement('a');
         a.href = url;
         a.download = nombreArchivo;
         document.body.appendChild(a);
@@ -7268,16 +7223,12 @@ async function descargarExcel(nombreArchivo) {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }, 100);
-        mostrarToast("⬇️ Excel descargado. Si ya existe, acepta reemplazar para no crear copias.");
+        mostrarToast('⬇️ Excel descargado. Si existe, acepta reemplazar.');
 
     } catch (err) {
-        console.error("Error al guardar Excel:", err);
-        debugPantalla("Error guardar: " + err.message);
-        if (err.message && (err.message.includes("notcreated") || err.message.includes("permission"))) {
-            alert("No se pudo guardar automáticamente.\n\nRevisa los permisos de archivos de la app.");
-        } else {
-            alert("❌ Error al guardar: " + err.message);
-        }
+        console.error('Error al guardar Excel:', err);
+        debugPantalla('Error guardar: ' + err.message);
+        alert('❌ Error al guardar: ' + err.message);
     }
 }
 
