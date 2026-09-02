@@ -9,6 +9,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/vamos-estudiar.jks
+
+      - name: Create keystore.properties
+        run: |
+          cat > android/keystore.properties << EOF
+          storeFile=../app/vamos-estudiar.jks
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          EOF
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
