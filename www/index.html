@@ -7690,8 +7690,10 @@ function setReadButton(activo) {
     }
 }
 
+let currentTTSActive = false;
+
 async function readCurrentQuestion() {
-    stopReading(); // Detener cualquier lectura previa
+    stopReading();
     
     const questionText = document.getElementById('questionText')?.innerText || '';
     let options = document.querySelectorAll('#options .option');
@@ -7701,7 +7703,6 @@ async function readCurrentQuestion() {
     }
     if (!questionText && options.length === 0) return;
 
-    // Limpiar signos para que no se pronuncien
     const cleanQuestion = questionText.replace(/[¿¡]/g, '');
     let textToRead = `Pregunta: ${cleanQuestion}. `;
     const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -7714,13 +7715,12 @@ async function readCurrentQuestion() {
 
     currentTTSActive = true;
 
-    // 1. INTENTAR USAR EL PLUGIN NATIVO DE CAPACITOR (Para la APK)
-    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+    // 1. PLUGIN NATIVO PARA LA APK (Android/iOS)
+    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
         try {
-            // Accedemos al plugin de forma segura
-            const { TextToSpeech } = window.Capacitor.Plugins;
-            if (TextToSpeech) {
-                await TextToSpeech.speak({
+            const TTS = window.Capacitor.Plugins?.TextToSpeech;
+            if (TTS) {
+                await TTS.speak({
                     text: textToRead,
                     lang: 'es-ES',
                     rate: 1.0,
@@ -7728,14 +7728,14 @@ async function readCurrentQuestion() {
                     volume: 1.0
                 });
                 currentTTSActive = false;
-                return; // Éxito, salimos de la función
+                return;
             }
         } catch (error) {
             console.warn("Fallo en TTS nativo, usando fallback:", error);
         }
     }
 
-    // 2. FALLBACK: USAR EL NAVEGADOR (Para cuando lo pruebes en el PC)
+    // 2. FALLBACK PARA NAVEGADOR WEB
     if (window.speechSynthesis) {
         const utterance = new SpeechSynthesisUtterance(textToRead);
         utterance.lang = 'es-ES';
@@ -7743,7 +7743,6 @@ async function readCurrentQuestion() {
         utterance.onend = () => { currentTTSActive = false; };
         utterance.onerror = () => { currentTTSActive = false; };
         
-        // Lógica de selección de voz (la que ya teníamos)
         const setVoiceAndSpeak = () => {
             let voices = window.speechSynthesis.getVoices();
             if (voices.length === 0) {
@@ -7751,7 +7750,9 @@ async function readCurrentQuestion() {
                     voices = window.speechSynthesis.getVoices();
                     asignarYHablar(voices, utterance);
                 };
-                setTimeout(() => { if(window.speechSynthesis.getVoices().length === 0) asignarYHablar([], utterance); }, 600);
+                setTimeout(() => { 
+                    if(window.speechSynthesis.getVoices().length === 0) asignarYHablar([], utterance);
+                }, 600);
                 return;
             }
             asignarYHablar(voices, utterance);
@@ -7772,7 +7773,6 @@ async function readCurrentQuestion() {
         };
         setVoiceAndSpeak();
     } else {
-        mostrarErrorTTS("Tu dispositivo no tiene un motor de voz instalado.");
         currentTTSActive = false;
     }
 }
@@ -7780,12 +7780,10 @@ async function readCurrentQuestion() {
 function stopReading() {
     currentTTSActive = false;
     
-    // Detener plugin nativo
-    if (window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins.TextToSpeech) {
+    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins?.TextToSpeech) {
         window.Capacitor.Plugins.TextToSpeech.stop().catch(() => {});
     }
     
-    // Detener navegador
     if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
     }
