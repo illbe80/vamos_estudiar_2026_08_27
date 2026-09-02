@@ -30,14 +30,15 @@ jobs:
       - name: Decode Keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/vamos-estudiar.jks
+          ls -lh android/app/vamos-estudiar.jks
 
       - name: Create keystore.properties
         run: |
           cat > android/keystore.properties << EOF
-          storeFile=../app/vamos-estudiar.jks
           storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-          keyAlias=${{ secrets.KEY_ALIAS }}
           keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=app/vamos-estudiar.jks
           EOF
 
       - name: Generate App Icons
@@ -51,17 +52,27 @@ jobs:
 
       - name: Configure Android Signing
         run: |
-          sed -i '/buildTypes {/i\
+          # Añadir la carga del archivo keystore.properties al inicio del build.gradle
+          sed -i '1i def keystoreProperties = new Properties()\
+          def keystorePropertiesFile = rootProject.file('\''keystore.properties'\'')\
+          if (keystorePropertiesFile.exists()) {\
+              keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\
+          }' android/app/build.gradle
+          
+          # Añadir la configuración de firma después de la declaración de plugins
+          sed -i '/android {/a\
               signingConfigs {\
                   release {\
-                      storeFile file("../app/vamos-estudiar.jks")\
-                      storePassword "'"${{ secrets.KEYSTORE_PASSWORD }}"'"\
-                      keyAlias "'"${{ secrets.KEY_ALIAS }}"'"\
-                      keyPassword "'"${{ secrets.KEY_PASSWORD }}"'"\
+                      keyAlias keystoreProperties['\''keyAlias'\'']\
+                      keyPassword keystoreProperties['\''keyPassword'\'']\
+                      storeFile keystoreProperties['\''storeFile'\''] ? file(keystoreProperties['\''storeFile'\'']) : null\
+                      storePassword keystoreProperties['\''storePassword'\'']\
                   }\
               }' android/app/build.gradle
-
-          sed -i 's/signingConfig signingConfigs.debug/signingConfig signingConfigs.release/g' android/app/build.gradle
+          
+          # Aplicar la firma al buildType release
+          sed -i '/buildTypes {/,/}/{s/release {/release {\
+                  signingConfig signingConfigs.release/}' android/app/build.gradle
 
       - name: Add Storage Permissions to AndroidManifest
         run: |
@@ -84,6 +95,7 @@ jobs:
       - name: Find APK
         run: |
           find android -name "*.apk" -type f
+      
       - name: Show build.gradle
         run: |
           cat android/app/build.gradle
