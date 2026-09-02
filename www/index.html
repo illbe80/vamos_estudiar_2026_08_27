@@ -3850,34 +3850,70 @@ function mostrarPreguntaRevision(pregunta, respuestaUsuario) {
 }
 
 function finalizarExamen() {
- stopReading(); 
+    stopReading();
+
     if (cronometroInterval) clearInterval(cronometroInterval);
+
     const ms = Date.now() - examStartTime;
-    
-    // Si la pregunta actual no ha sido respondida, restamos su visualización
+
     if (!respuestaDada && currentPregunta && !currentPregunta.esAnulada) {
         totalMostradas = Math.max(0, totalMostradas - 1);
         totalMostradasExamenActual = Math.max(0, totalMostradasExamenActual - 1);
     }
-    
-    const sliceEnd = respuestaDada ? preguntaActualIndex : (preguntaActualIndex - 1);
-    const noAnuladas = preguntasBarajadas.slice(0, Math.max(0, sliceEnd)).filter(p => !p.esAnulada).length;
-    const nota = noAnuladas > 0 ? Math.max(0, (aciertosExamenActual - fallosExamenActual * 0.25) / noAnuladas * 10).toFixed(1) : 0;
-    const preguntasValidasCalc = Math.max(0, aciertosExamenActual - fallosExamenActual * 0.25);
-    
-    document.getElementById('preguntasValidas').textContent = preguntasValidasCalc.toFixed(2);
-    document.getElementById('totalPreguntas').textContent = totalMostradasExamenActual;
-    document.getElementById('acertadas').textContent = aciertosExamenActual;
-    
+
+    const sliceEnd = respuestaDada
+        ? preguntaActualIndex
+        : (preguntaActualIndex - 1);
+
+    const noAnuladas = preguntasBarajadas
+        .slice(0, Math.max(0, sliceEnd))
+        .filter(p => !p.esAnulada).length;
+
+    const nota = noAnuladas > 0
+        ? Math.max(
+            0,
+            (aciertosExamenActual - fallosExamenActual * 0.25)
+            / noAnuladas * 10
+        ).toFixed(1)
+        : 0;
+
+    const preguntasValidasCalc =
+        Math.max(0, aciertosExamenActual - fallosExamenActual * 0.25);
+
+    document.getElementById('preguntasValidas').textContent =
+        preguntasValidasCalc.toFixed(2);
+
+    document.getElementById('totalPreguntas').textContent =
+        totalMostradasExamenActual;
+
+    document.getElementById('acertadas').textContent =
+        aciertosExamenActual;
+
     const falladasEl = document.getElementById('falladas');
-    if (falladasEl) falladasEl.textContent = fallosExamenActual;
-    
+    if (falladasEl) {
+        falladasEl.textContent = fallosExamenActual;
+    }
+
     document.getElementById('nota').textContent = nota;
     document.getElementById('tiempoTotal').textContent = formatTiempo(ms);
-    document.getElementById('tiempoMedio').textContent = totalMostradasExamenActual > 0 ? formatTiempo(Math.round(ms / totalMostradasExamenActual / 1000) * 1000) : '--:--';
 
-    document.getElementById('resultadosModal').style.display = 'block';
-    guardarExcelActualizado().then(() => console.log('✅ Excel guardado'));
+    document.getElementById('tiempoMedio').textContent =
+        totalMostradasExamenActual > 0
+            ? formatTiempo(
+                Math.round(ms / totalMostradasExamenActual / 1000) * 1000
+              )
+            : '--:--';
+
+    guardarExcelActualizado().then(() => {
+        console.log('✅ Excel guardado');
+        actualizarProgresoDiario(totalMostradasExamenActual);
+
+        mostrarMensajeMotivacional(
+            nota,
+            aciertosExamenActual,
+            fallosExamenActual
+        );
+    });
 }
 
 function finalizarExamenAutomatico() {
@@ -7254,23 +7290,34 @@ function resetApp() {
 }
 
 function prepararNuevoExamen() {
+
     preguntaActualIndex = 0;
     respuestaDada = false;
     aciertosExamenActual = 0;
     fallosExamenActual = 0;
     totalMostradasExamenActual = 0;
     preguntasExamenActual = [];
-    if (cronometroInterval) clearInterval(cronometroInterval);
-    
-    // Cerrar el modal de resultados
-    const resModal = document.getElementById('resultadosModal');
-    if (resModal) resModal.style.display = 'none';
 
-    document.getElementById('quizContainer').classList.add('hidden');
-    document.getElementById('supuestoContainer').classList.add('hidden');
-    document.getElementById('filtersContainer').classList.remove('hidden');
+    if (cronometroInterval) {
+        clearInterval(cronometroInterval);
+    }
+
+    document.getElementById('resultadosModal')
+        .style.display = 'none';
+
+    document.getElementById('quizContainer')
+        .classList.add('hidden');
+
+    document.getElementById('supuestoContainer')
+        .classList.add('hidden');
+
+    document.getElementById('filtersContainer')
+        .classList.remove('hidden');
+
     actualizarPanelEstadisticas();
 }
+
+
 
 
 // Sugerencias de examen
@@ -7690,10 +7737,8 @@ function setReadButton(activo) {
     }
 }
 
-let currentTTSActive = false;
-
 async function readCurrentQuestion() {
-    stopReading();
+    stopReading(); // Detener cualquier lectura previa
     
     const questionText = document.getElementById('questionText')?.innerText || '';
     let options = document.querySelectorAll('#options .option');
@@ -7703,6 +7748,7 @@ async function readCurrentQuestion() {
     }
     if (!questionText && options.length === 0) return;
 
+    // Limpiar signos para que no se pronuncien
     const cleanQuestion = questionText.replace(/[¿¡]/g, '');
     let textToRead = `Pregunta: ${cleanQuestion}. `;
     const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -7715,12 +7761,13 @@ async function readCurrentQuestion() {
 
     currentTTSActive = true;
 
-    // 1. PLUGIN NATIVO PARA LA APK (Android/iOS)
-    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+    // 1. INTENTAR USAR EL PLUGIN NATIVO DE CAPACITOR (Para la APK)
+    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
         try {
-            const TTS = window.Capacitor.Plugins?.TextToSpeech;
-            if (TTS) {
-                await TTS.speak({
+            // Accedemos al plugin de forma segura
+            const { TextToSpeech } = window.Capacitor.Plugins;
+            if (TextToSpeech) {
+                await TextToSpeech.speak({
                     text: textToRead,
                     lang: 'es-ES',
                     rate: 1.0,
@@ -7728,14 +7775,14 @@ async function readCurrentQuestion() {
                     volume: 1.0
                 });
                 currentTTSActive = false;
-                return;
+                return; // Éxito, salimos de la función
             }
         } catch (error) {
             console.warn("Fallo en TTS nativo, usando fallback:", error);
         }
     }
 
-    // 2. FALLBACK PARA NAVEGADOR WEB
+    // 2. FALLBACK: USAR EL NAVEGADOR (Para cuando lo pruebes en el PC)
     if (window.speechSynthesis) {
         const utterance = new SpeechSynthesisUtterance(textToRead);
         utterance.lang = 'es-ES';
@@ -7743,6 +7790,7 @@ async function readCurrentQuestion() {
         utterance.onend = () => { currentTTSActive = false; };
         utterance.onerror = () => { currentTTSActive = false; };
         
+        // Lógica de selección de voz (la que ya teníamos)
         const setVoiceAndSpeak = () => {
             let voices = window.speechSynthesis.getVoices();
             if (voices.length === 0) {
@@ -7750,9 +7798,7 @@ async function readCurrentQuestion() {
                     voices = window.speechSynthesis.getVoices();
                     asignarYHablar(voices, utterance);
                 };
-                setTimeout(() => { 
-                    if(window.speechSynthesis.getVoices().length === 0) asignarYHablar([], utterance);
-                }, 600);
+                setTimeout(() => { if(window.speechSynthesis.getVoices().length === 0) asignarYHablar([], utterance); }, 600);
                 return;
             }
             asignarYHablar(voices, utterance);
@@ -7773,6 +7819,7 @@ async function readCurrentQuestion() {
         };
         setVoiceAndSpeak();
     } else {
+        mostrarErrorTTS("Tu dispositivo no tiene un motor de voz instalado.");
         currentTTSActive = false;
     }
 }
@@ -7780,10 +7827,12 @@ async function readCurrentQuestion() {
 function stopReading() {
     currentTTSActive = false;
     
-    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins?.TextToSpeech) {
+    // Detener plugin nativo
+    if (window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins.TextToSpeech) {
         window.Capacitor.Plugins.TextToSpeech.stop().catch(() => {});
     }
     
+    // Detener navegador
     if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
     }
@@ -7806,40 +7855,6 @@ function desactivarModoLectura() {
     }
 }
 
-function finalizarExamen() {
-    desactivarModoLectura();
-    if (cronometroInterval) clearInterval(cronometroInterval);
-    const ms = Date.now() - examStartTime;
-    
-    if (!respuestaDada && currentPregunta && !currentPregunta.esAnulada) {
-        totalMostradas = Math.max(0, totalMostradas - 1);
-        totalMostradasExamenActual = Math.max(0, totalMostradasExamenActual - 1);
-    }
-    
-    const sliceEnd = respuestaDada ? preguntaActualIndex : (preguntaActualIndex - 1);
-    const noAnuladas = preguntasBarajadas.slice(0, Math.max(0, sliceEnd)).filter(p => !p.esAnulada).length;
-    const nota = noAnuladas > 0 ? Math.max(0, (aciertosExamenActual - fallosExamenActual * 0.25) / noAnuladas * 10).toFixed(1) : 0;
-    const preguntasValidasCalc = Math.max(0, aciertosExamenActual - fallosExamenActual * 0.25);
-    
-    document.getElementById('preguntasValidas').textContent = preguntasValidasCalc.toFixed(2);
-    document.getElementById('totalPreguntas').textContent = totalMostradasExamenActual;
-    document.getElementById('acertadas').textContent = aciertosExamenActual;
-    
-    const falladasEl = document.getElementById('falladas');
-    if (falladasEl) falladasEl.textContent = fallosExamenActual;
-    
-    document.getElementById('nota').textContent = nota;
-    document.getElementById('tiempoTotal').textContent = formatTiempo(ms);
-    document.getElementById('tiempoMedio').textContent = totalMostradasExamenActual > 0 ? formatTiempo(Math.round(ms / totalMostradasExamenActual / 1000) * 1000) : '--:--';
-
-    // Guardar datos
-    guardarExcelActualizado().then(() => {
-        actualizarPanelEstadisticas();
-        // Aquí llamamos a la gamificación
-        actualizarProgresoDiario(totalMostradasExamenActual);
-        mostrarMensajeMotivacional(nota, aciertosExamenActual, fallosExamenActual);
-    });
-}
 
 // Modificar renderizarPantallaProgreso para mostrar el objetivo diario
 // Busca la función 'renderizarPantallaProgreso' y AÑADE este código al principio, justo después de comprobar que hay datos:
