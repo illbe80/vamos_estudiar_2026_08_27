@@ -2018,6 +2018,16 @@ const S_COL_ACIERTOS  = 8;
 const S_COL_FALLOS    = 9;
 const S_COL_REPASAR   = 10;
 
+// Prioridades de voces para TTS (se buscan en este orden)
+const voicePriority = [
+    v => v.lang === 'es-ES' && v.name.includes('Microsoft'),
+    v => v.lang === 'es-ES',
+    v => v.lang.startsWith('es'),
+    v => v.name.includes('Spanish'),
+    v => v.name.includes('Google')
+];
+
+
 // Variables globales de la aplicación
 let workbook = null;
 let preguntasRaw = {};
@@ -3900,54 +3910,19 @@ function finalizarExamen() {
         .slice(0, Math.max(0, sliceEnd))
         .filter(p => !p.esAnulada).length;
 
-const notaCalculada = noAnuladas > 0
-    ? Math.max(
-        0,
-        (aciertosExamenActual - fallosExamenActual * 0.25)
-        / noAnuladas * 10
-    )
-    : 0;
+    // 1. PRIMERO calculamos las preguntas válidas (para poder usarla después)
+    const preguntasValidasCalc = Math.max(0, aciertosExamenActual - fallosExamenActual * 0.25);
 
+    // 2. DESPUÉS calculamos la nota usando la variable ya creada, con límite máximo de 10
+    const nota = noAnuladas > 0
+        ? Math.min(10, Math.max(0, (preguntasValidasCalc / noAnuladas) * 10)).toFixed(1)
+        : "0.0";
 
-if (
-    notaCalculada > 10 ||
-    notaCalculada < 0 ||
-    !isFinite(notaCalculada)
-) {
-    alert(
-        "ERROR EN CÁLCULO DE NOTA\n\n" +
-        "aciertos=" + aciertosExamenActual +
-        "\nfallos=" + fallosExamenActual +
-        "\nnoAnuladas=" + noAnuladas +
-        "\nresultado=" + notaCalculada
-    );
-}
-
-// Protección contra notas absurdas
-const nota = Math.min(10, notaCalculada).toFixed(1);
-
-const debugNota = {
-    notaCalculada: notaCalculada,
-    notaFinal: nota,
-    aciertos: aciertosExamenActual,
-    fallos: fallosExamenActual,
-    noAnuladas: noAnuladas,
-    preguntasValidasCalc: preguntasValidasCalc,
-    totalMostradas: totalMostradasExamenActual
-};
-
-    const preguntasValidasCalc =
-        Math.max(0, aciertosExamenActual - fallosExamenActual * 0.25);
-
-    document.getElementById('preguntasValidas').textContent =
-        preguntasValidasCalc.toFixed(2);
-
-    document.getElementById('totalPreguntas').textContent =
-        totalMostradasExamenActual;
-
-    document.getElementById('acertadas').textContent =
-        aciertosExamenActual;
-
+    // 3. FINALMENTE asignamos los valores al HTML
+    document.getElementById('preguntasValidas').textContent = preguntasValidasCalc.toFixed(2);
+    document.getElementById('totalPreguntas').textContent = totalMostradasExamenActual;
+    document.getElementById('acertadas').textContent = aciertosExamenActual;
+    
     const falladasEl = document.getElementById('falladas');
     if (falladasEl) {
         falladasEl.textContent = fallosExamenActual;
@@ -3958,29 +3933,18 @@ const debugNota = {
 
     document.getElementById('tiempoMedio').textContent =
         totalMostradasExamenActual > 0
-            ? formatTiempo(
-                Math.round(ms / totalMostradasExamenActual / 1000) * 1000
-              )
+            ? formatTiempo(Math.round(ms / totalMostradasExamenActual / 1000) * 1000)
             : '--:--';
 
+    // 4. Guardar y mostrar mensaje
     guardarExcelActualizado().then(() => {
         console.log('✅ Excel guardado');
         actualizarProgresoDiario(totalMostradasExamenActual);
-        mostrarMensajeMotivacional(
-    nota,
-    aciertosExamenActual,
-    fallosExamenActual,
-    debugNota
-);
+        mostrarMensajeMotivacional(nota, aciertosExamenActual, fallosExamenActual);
     }).catch((err) => {
         console.error(err);
         alert('El examen terminó pero NO se guardó el Excel:\n' + (err && err.message ? err.message : String(err)));
-        mostrarMensajeMotivacional(
-    nota,
-    aciertosExamenActual,
-    fallosExamenActual,
-    debugNota
-);
+        mostrarMensajeMotivacional(nota, aciertosExamenActual, fallosExamenActual);
     });
 }
 
@@ -7828,45 +7792,50 @@ let currentUtterance = null;
 
 
 function abrirAjustesVoz() {
+    // Primero hacer visible el modal para asegurar que los elementos estén en el DOM
+    const modal = document.getElementById("ajustesVozModal");
+    if (modal) {
+        modal.style.display = "block";
+    }
 
-    cargarListaVoces();
+    // Cargar lista de voces
+    if (typeof cargarListaVoces === 'function') {
+        cargarListaVoces();
+    }
 
-    document.getElementById("ajustesVozSelect").value =
-        localStorage.getItem("vozSeleccionada") || "";
+    // Asignar valores con verificación de null
+    const vozSelect = document.getElementById("ajustesVozSelect");
+    if (vozSelect) {
+        vozSelect.value = localStorage.getItem("vozSeleccionada") || "";
+    } else {
+        console.warn("No se encontró el elemento ajustesVozSelect");
+    }
 
-    document.getElementById("ajustesVelocidadSelect").value =
-        localStorage.getItem("velocidadLectura") || "1";
-
-    document.getElementById("ajustesVozModal").style.display = "block";
+    const velocidadSelect = document.getElementById("ajustesVelocidadSelect");
+    if (velocidadSelect) {
+        velocidadSelect.value = localStorage.getItem("velocidadLectura") || "1";
+    } else {
+        console.warn("No se encontró el elemento ajustesVelocidadSelect");
+    }
 }
 
 function guardarAjustesVoz() {
+    const vozSeleccionada = document.getElementById("ajustesVozSelect").value;
+    const velocidadSeleccionada = document.getElementById("ajustesVelocidadSelect").value;
 
-    vozSeleccionada =
-        document.getElementById(
-            "ajustesVozSelect"
-        ).value;
+    // Guardar en localStorage
+    localStorage.setItem("vozSeleccionada", vozSeleccionada);
+    localStorage.setItem("velocidadLectura", velocidadSeleccionada);
 
-    velocidadLectura =
-        parseFloat(
-            document.getElementById(
-                "ajustesVelocidadSelect"
-            ).value
-        );
-
-    localStorage.setItem(
-        "vozSeleccionada",
-        vozSeleccionada
-    );
-
-    localStorage.setItem(
-        "velocidadLectura",
-        velocidadLectura
-    );
-
-    closeModal("ajustesVozModal");
-
-    mostrarToast("✅ Ajustes guardados");
+    // Cerrar modal y confirmar
+    if (typeof closeModal === 'function') {
+        closeModal('ajustesVozModal');
+    } else {
+        document.getElementById("ajustesVozModal").style.display = "none";
+    }
+    
+    // Feedback visual
+    alert("✅ Ajustes de voz y velocidad guardados correctamente.");
 }
 
 function probarVozSeleccionada() {
@@ -8027,39 +7996,38 @@ async function readCurrentQuestion() {
 
     currentTTSActive = true;
 
+    // Obtener velocidad guardada (Fallback a 1 si no existe)
+    const velocidadGuardada = parseFloat(localStorage.getItem("velocidadLectura") || "1");
+
     // 1. INTENTAR USAR EL PLUGIN NATIVO DE CAPACITOR (Para la APK)
     if (window.Capacitor && window.Capacitor.isNativePlatform()) {
         try {
-            // Accedemos al plugin de forma segura
             const { TextToSpeech } = window.Capacitor.Plugins;
             if (TextToSpeech) {
                 await TextToSpeech.speak({
                     text: textToRead,
                     lang: 'es-ES',
-                    rate: 1.0,
+                    rate: velocidadGuardada, // ← AQUÍ SE APLICA LA VELOCIDAD GUARDADA
                     pitch: 1.0,
                     volume: 1.0
                 });
                 currentTTSActive = false;
-                return; // Éxito, salimos de la función
+                return; 
             }
         } catch (error) {
             console.warn("Fallo en TTS nativo, usando fallback:", error);
         }
     }
 
-    // 2. FALLBACK: USAR EL NAVEGADOR (Para cuando lo pruebes en el PC)
+    // 2. FALLBACK: USAR EL NAVEGADOR (Para PC)
     if (window.speechSynthesis) {
         const utterance = new SpeechSynthesisUtterance(textToRead);
         utterance.lang = 'es-ES';
-        utterance.rate =
-    parseFloat(
-        document.getElementById("velocidadSelect")?.value || "1"
-    );
+        utterance.rate = velocidadGuardada; // ← AQUÍ SE APLICA LA VELOCIDAD GUARDADA
+        
         utterance.onend = () => { currentTTSActive = false; };
         utterance.onerror = () => { currentTTSActive = false; };
         
-        // Lógica de selección de voz (la que ya teníamos)
         const setVoiceAndSpeak = () => {
             let voices = window.speechSynthesis.getVoices();
             if (voices.length === 0) {
@@ -8067,48 +8035,51 @@ async function readCurrentQuestion() {
                     voices = window.speechSynthesis.getVoices();
                     asignarYHablar(voices, utterance);
                 };
-                setTimeout(() => { if(window.speechSynthesis.getVoices().length === 0) asignarYHablar([], utterance); }, 600);
+                setTimeout(() => { 
+                    if(window.speechSynthesis.getVoices().length === 0) asignarYHablar([], utterance); 
+                }, 600);
                 return;
             }
             asignarYHablar(voices, utterance);
         };
 
         const asignarYHablar = (voices, utterance) => {
-const vozGuardada =
-    localStorage.getItem("vozSeleccionada");
-
-if (vozGuardada) {
-
-    const voz =
-        voices.find(
-            v => v.name === vozGuardada
-        );
-
-    if (voz) {
-        utterance.voice = voz;
-    }
-
-} else {
-
-    const voz =
-        voices.find(
-            v => v.lang &&
-                 v.lang.startsWith("es")
-        );
-
-    if (voz) {
-        utterance.voice = voz;
-    }
-}
-            for (const condition of voicePriority) {
-                const selected = voices.find(condition);
-                if (selected) { utterance.voice = selected; break; }
+            if (!voices || voices.length === 0) {
+                window.speechSynthesis.speak(utterance);
+                return;
             }
+
+            const vozGuardada = localStorage.getItem("vozSeleccionada");
+            let vozAsignada = null;
+
+            if (vozGuardada) {
+                vozAsignada = voices.find(v => v.name === vozGuardada);
+            }
+
+            if (!vozAsignada && typeof voicePriority !== 'undefined') {
+                for (const condition of voicePriority) {
+                    const selected = voices.find(condition);
+                    if (selected) { 
+                        vozAsignada = selected; 
+                        break; 
+                    }
+                }
+            }
+
+            if (!vozAsignada) {
+                vozAsignada = voices.find(v => v.lang && v.lang.startsWith("es"));
+            }
+
+            if (vozAsignada) {
+                utterance.voice = vozAsignada;
+            }
+
             window.speechSynthesis.speak(utterance);
         };
+        
         setVoiceAndSpeak();
     } else {
-        mostrarErrorTTS("Tu dispositivo no tiene un motor de voz instalado.");
+        console.warn("Tu dispositivo no tiene un motor de voz instalado.");
         currentTTSActive = false;
     }
 }
