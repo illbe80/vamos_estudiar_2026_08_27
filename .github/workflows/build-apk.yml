@@ -1,18 +1,20 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Permite ejecutarlo manualmente desde la pestaña "Actions"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
 
       - name: Setup Java JDK
         uses: actions/setup-java@v5
@@ -23,10 +25,11 @@ jobs:
       - name: Install dependencies
         run: |
           npm install
+          # Instalamos el plugin nativo de TTS recomendado para Android
           npm install @capacitor-community/text-to-speech
 
       - name: Add Android platform
-        run: npx cap add android
+        run: npx cap add android || echo "Android platform already exists"
 
       - name: Decode Keystore
         run: |
@@ -46,22 +49,29 @@ jobs:
         run: |
           npm install -g @capacitor/assets
           sudo apt-get update && sudo apt-get install -y imagemagick
-          npx capacitor-assets generate --iconBackgroundColor '#ffffff'
+          npx capacitor-assets generate --iconBackgroundColor '#ffffff' --iconBackgroundColorDark '#0D0F14'
 
-      - name: Sync Web Assets
+      - name: Sync Web Assets & Plugins
         run: npx cap sync android
 
       - name: Configure Android Signing
         run: |
+          # Inyectar carga de propiedades al inicio del build.gradle
           sed -i '1i def keystorePropertiesFile = rootProject.file("app/keystore.properties")\ndef keystoreProperties = new Properties()\nif (keystorePropertiesFile.exists()) {\n    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\n}' android/app/build.gradle
-          sed -i '/android {/a\    signingConfigs {\n        release {\n            keyAlias keystoreProperties['\''keyAlias'\'']\n            keyPassword keystoreProperties['\''keyPassword'\'']\n            storeFile file(keystoreProperties['\''storeFile'\''])\n            storePassword keystoreProperties['\''storePassword'\'']\n        }\n    }' android/app/build.gradle
+          
+          # Inyectar bloque signingConfigs dentro de android { }
+          sed -i '/android {/a\    signingConfigs {\n        release {\n            keyAlias keystoreProperties['\''keyAlias'\'']\n            keyPassword keadosProperties['\''keyPassword'\'']\n            storeFile file(keystoreProperties['\''storeFile'\''])\n            storePassword keystoreProperties['\''storePassword'\'']\n        }\n    }' android/app/build.gradle
+          
+          # Inyectar signingConfig dentro de buildTypes { release { }
           sed -i '/buildTypes {/,/release {/{s/release {/release {\n            signingConfig signingConfigs.release/}' android/app/build.gradle
 
       - name: Add Storage Permissions to AndroidManifest
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
+          # Limpiar permisos antiguos duplicados
           sed -i '/WRITE_EXTERNAL_STORAGE/d' "$MANIFEST"
           sed -i '/READ_EXTERNAL_STORAGE/d' "$MANIFEST"
+          # Añadir permisos modernos (Android 13+) y legacy con maxSdkVersion
           sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>' "$MANIFEST"
           sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>' "$MANIFEST"
           sed -i '/<application/i\    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>' "$MANIFEST"
@@ -71,257 +81,10 @@ jobs:
       - name: Inject FileAccess plugin and MainActivity
         run: |
           set -e
+          # Detectar el package name automáticamente
           PKG=$(grep -oP 'package="\K[^"]+' android/app/src/main/AndroidManifest.xml | head -1 || true)
           if [ -z "$PKG" ]; then
             PKG=$(grep -oP 'namespace\s+"\K[^"]+' android/app/build.gradle | head -1 || true)
           fi
           if [ -z "$PKG" ]; then
-            PKG="com.oposiciones.estudio2026"
-          fi
-          echo "Package: $PKG"
-          PKG_PATH=$(echo "$PKG" | tr '.' '/')
-          DEST_DIR="android/app/src/main/java/${PKG_PATH}"
-          mkdir -p "$DEST_DIR"
-
-          python3 -c "
-          from pathlib import Path
-          pkg = '''$PKG'''
-          dest_dir = Path('''$DEST_DIR''')
-          dest_dir.mkdir(parents=True, exist_ok=True)
-          plugin = '''package %s;
-
-          import android.content.Context;
-          import android.content.Intent;
-          import android.content.SharedPreferences;
-          import android.database.Cursor;
-          import android.net.Uri;
-          import android.provider.OpenableColumns;
-          import android.util.Base64;
-          import androidx.activity.result.ActivityResult;
-          import com.getcapacitor.JSObject;
-          import com.getcapacitor.Plugin;
-          import com.getcapacitor.PluginCall;
-          import com.getcapacitor.PluginMethod;
-          import com.getcapacitor.annotation.ActivityCallback;
-          import com.getcapacitor.annotation.CapacitorPlugin;
-          import java.io.ByteArrayOutputStream;
-          import java.io.InputStream;
-          import java.io.OutputStream;
-
-          @CapacitorPlugin(name = \"FileAccess\")
-          public class FileAccessPlugin extends Plugin {
-              private static final String PREFS = \"FileAccessPrefs\";
-              private static final String KEY_URI = \"saved_uri\";
-              private PluginCall savedCall;
-
-              private SharedPreferences prefs() {
-                  return getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-              }
-
-              private void persistUri(Uri uri) {
-                  try {
-                      getContext().getContentResolver().takePersistableUriPermission(
-                          uri,
-                          Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                      );
-                  } catch (Exception ignored) {}
-                  prefs().edit().putString(KEY_URI, uri.toString()).apply();
-              }
-
-              private String queryName(Uri uri) {
-                  String name = \"examen.xlsx\";
-                  try (Cursor c = getContext().getContentResolver().query(uri, null, null, null, null)) {
-                      if (c != null && c.moveToFirst()) {
-                          int idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                          if (idx >= 0) name = c.getString(idx);
-                      }
-                  } catch (Exception ignored) {}
-                  return name;
-              }
-
-              @PluginMethod
-              public void pickFileWithPermission(PluginCall call) {
-                  savedCall = call;
-                  Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-                  intent.addCategory(Intent.CATEGORY_OPENABLE);
-                  intent.setType(\"*/*\");
-                  intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
-                      \"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\",
-                      \"application/vnd.ms-excel\",
-                      \"application/octet-stream\"
-                  });
-                  intent.addFlags(
-                      Intent.FLAG_GRANT_READ_URI_PERMISSION
-                      | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                      | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-                  );
-                  startActivityForResult(call, intent, \"pickFileResult\");
-              }
-
-              @ActivityCallback
-              private void pickFileResult(PluginCall call, ActivityResult result) {
-                  if (call == null) call = savedCall;
-                  if (call == null) return;
-                  if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) {
-                      JSObject ret = new JSObject();
-                      ret.put(\"success\", false);
-                      call.resolve(ret);
-                      return;
-                  }
-                  Uri uri = result.getData().getData();
-                  if (uri == null) {
-                      call.reject(\"URI nula\");
-                      return;
-                  }
-                  final int takeFlags = result.getData().getFlags() &
-                      (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-                  try {
-                      getContext().getContentResolver().takePersistableUriPermission(uri, takeFlags);
-                  } catch (Exception e) {
-                      try {
-                          getContext().getContentResolver().takePersistableUriPermission(
-                              uri,
-                              Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                          );
-                      } catch (Exception ignored) {}
-                  }
-                  persistUri(uri);
-                  JSObject ret = new JSObject();
-                  ret.put(\"success\", true);
-                  ret.put(\"uri\", uri.toString());
-                  ret.put(\"name\", queryName(uri));
-                  call.resolve(ret);
-              }
-
-              @PluginMethod
-              public void readFile(PluginCall call) {
-                  String uriStr = call.getString(\"uri\");
-                  if (uriStr == null || uriStr.isEmpty()) {
-                      uriStr = prefs().getString(KEY_URI, null);
-                  }
-                  if (uriStr == null) {
-                      call.reject(\"No hay URI\");
-                      return;
-                  }
-                  try {
-                      Uri uri = Uri.parse(uriStr);
-                      InputStream in = getContext().getContentResolver().openInputStream(uri);
-                      if (in == null) {
-                          call.reject(\"No se pudo abrir el archivo\");
-                          return;
-                      }
-                      ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                      byte[] buf = new byte[8192];
-                      int n;
-                      while ((n = in.read(buf)) != -1) {
-                          bos.write(buf, 0, n);
-                      }
-                      in.close();
-                      JSObject ret = new JSObject();
-                      ret.put(\"data\", Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP));
-                      call.resolve(ret);
-                  } catch (Exception e) {
-                      call.reject(\"Error leyendo: \" + e.getMessage());
-                  }
-              }
-
-              @PluginMethod
-              public void writeFile(PluginCall call) {
-                  String uriStr = call.getString(\"uri\");
-                  String data = call.getString(\"data\");
-                  if (uriStr == null || uriStr.isEmpty()) {
-                      uriStr = prefs().getString(KEY_URI, null);
-                  }
-                  if (uriStr == null) {
-                      call.reject(\"No hay URI para escribir\");
-                      return;
-                  }
-                  if (data == null) {
-                      call.reject(\"No hay datos\");
-                      return;
-                  }
-                  try {
-                      Uri uri = Uri.parse(uriStr);
-                      byte[] bytes = Base64.decode(data, Base64.DEFAULT);
-                      OutputStream out = getContext().getContentResolver().openOutputStream(uri, \"rwt\");
-                      if (out == null) {
-                          out = getContext().getContentResolver().openOutputStream(uri, \"wt\");
-                      }
-                      if (out == null) {
-                          call.reject(\"No se pudo abrir OutputStream\");
-                          return;
-                      }
-                      out.write(bytes);
-                      out.flush();
-                      out.close();
-                      persistUri(uri);
-                      JSObject ret = new JSObject();
-                      ret.put(\"success\", true);
-                      call.resolve(ret);
-                  } catch (Exception e) {
-                      call.reject(\"Error escribiendo: \" + e.getMessage());
-                  }
-              }
-
-              @PluginMethod
-              public void getSavedFileUri(PluginCall call) {
-                  String uriStr = prefs().getString(KEY_URI, null);
-                  JSObject ret = new JSObject();
-                  if (uriStr == null) {
-                      ret.put(\"uri\", \"\");
-                      ret.put(\"hasPermission\", false);
-                      call.resolve(ret);
-                      return;
-                  }
-                  ret.put(\"uri\", uriStr);
-                  ret.put(\"hasPermission\", true);
-                  call.resolve(ret);
-              }
-          }
-          ''' % pkg
-          # Quitar sangría artificial de 2 espacios al inicio de cada línea del java
-          lines = []
-          for line in plugin.splitlines(True):
-              if line.startswith('  '):
-                  lines.append(line[2:])
-              else:
-                  lines.append(line)
-          (dest_dir / 'FileAccessPlugin.java').write_text(''.join(lines))
-          main = '''package %s;
-
-          import android.os.Bundle;
-          import com.getcapacitor.BridgeActivity;
-
-          public class MainActivity extends BridgeActivity {
-              @Override
-              public void onCreate(Bundle savedInstanceState) {
-                  registerPlugin(FileAccessPlugin.class);
-                  super.onCreate(savedInstanceState);
-              }
-          }
-          ''' % pkg
-          mlines = []
-          for line in main.splitlines(True):
-              if line.startswith('  '):
-                  mlines.append(line[2:])
-              else:
-                  mlines.append(line)
-          (dest_dir / 'MainActivity.java').write_text(''.join(mlines))
-          print('Plugin written')
-          print((dest_dir / 'MainActivity.java').read_text())
-          "
-
-      - name: Build Release APK
-        run: |
-          chmod +x ./android/gradlew
-          cd android
-          ./gradlew assembleRelease
-
-      - name: Find APK
-        run: find android -name "*.apk" -type f
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: VamosAEstudiar-Release-APK
-          path: android/app/build/outputs/apk/release/app-release.apk
+            PKG="com
